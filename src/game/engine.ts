@@ -689,6 +689,39 @@ export class GameEngine {
         // Clone the model directly - this will be the root object that moves
         const model = cachedModel.clone() as THREE.Group;
         
+        // CRITICAL: Reset ALL transforms on the cloned model
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+        model.scale.set(1, 1, 1);
+        
+        // Reset transforms on all children too
+        model.traverse((child) => {
+          if (child !== model) {
+            // Keep relative positions but ensure no weird offsets
+            if (child instanceof THREE.Mesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          }
+        });
+        
+        // Calculate bounding box to center the model properly
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        
+        console.log(`📏 ${modelName} model bounds:`, {
+          center: center.toArray().map(v => v.toFixed(2)),
+          size: size.toArray().map(v => v.toFixed(2)),
+          min: box.min.toArray().map(v => v.toFixed(2)),
+          max: box.max.toArray().map(v => v.toFixed(2))
+        });
+        
+        // Offset model so its center is at origin and feet are at y=0
+        model.position.x = -center.x;
+        model.position.y = -box.min.y; // Put feet on ground
+        model.position.z = -center.z;
+        
         // Scale based on type
         const scales: Record<string, number> = {
           normal: 1.0,
@@ -698,10 +731,7 @@ export class GameEngine {
           exploder: 1.1,
         };
         const scale = isZombie ? (scales[zombieType] || 1.0) : 1.0;
-        model.scale.setScalar(scale);
-        
-        // CRITICAL: Reset position to origin - this is the root object that will move
-        model.position.set(0, 0, 0);
+        model.scale.multiplyScalar(scale);
         
         // Rotate to face correct direction
         model.rotation.y = Math.PI;
@@ -1815,7 +1845,18 @@ export class GameEngine {
 
     const mesh = this.createCharacterModel(true, type);
     const lane = (Math.random() - 0.5) * 8;
-    mesh.position.set(lane, 0, -60 - Math.random() * 20);
+    const spawnZ = -60 - Math.random() * 20;
+    
+    // CRITICAL: Set position on the ROOT object
+    mesh.position.set(lane, 0, spawnZ);
+    
+    console.log(`🧟 Spawned ${type} zombie at position:`, {
+      x: lane.toFixed(2),
+      y: 0,
+      z: spawnZ.toFixed(2),
+      meshPosition: mesh.position.toArray().map(v => v.toFixed(2)),
+      children: mesh.children.length
+    });
     
     // Add health bar
     const healthBar = this.createHealthBar();
@@ -1977,13 +2018,27 @@ export class GameEngine {
     }
 
     // Update zombies
+    let debugCounter = 0;
     this.zombies.forEach(zombie => {
       if (!zombie.mesh || !zombie.mesh.parent) return; // Safety check
       zombie.animTime += delta * zombie.speed;
 
       // Move towards squad
       const targetZ = 6;
+      const oldZ = zombie.mesh.position.z;
       zombie.mesh.position.z += zombie.speed * delta;
+
+      // Debug: log first zombie position every 60 frames
+      debugCounter++;
+      if (debugCounter === 1 && Math.random() < 0.02) {
+        console.log(`🏃 Zombie moving:`, {
+          type: zombie.type,
+          oldZ: oldZ.toFixed(2),
+          newZ: zombie.mesh.position.z.toFixed(2),
+          speed: zombie.speed.toFixed(2),
+          meshChildren: zombie.mesh.children.length
+        });
+      }
 
       // Wobble animation
       zombie.mesh.position.y = Math.abs(Math.sin(zombie.animTime * 3)) * 0.1;
