@@ -95,19 +95,21 @@ export class GameEngine {
   private modelsLoaded = false;
   private onModelsLoaded: (() => void) | null = null;
 
-  // Model URLs (from reliable sources)
+  // Model URLs - замените на пути к вашим моделям
+  // Локальные файлы: '/models/zombie.glb' (из папки public/models/)
+  // Или удалённые URL: 'https://example.com/models/zombie.glb'
   private readonly MODEL_URLS = {
     zombie: [
-      'https://threejs.org/examples/models/gltf/Soldier.glb',
-      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
+      '/models/zombie.glb', // ← ВАША МОДЕЛЬ ЗОМБИ (обычный)
+      'https://threejs.org/examples/models/gltf/Soldier.glb', // Fallback
     ],
     soldier: [
-      'https://threejs.org/examples/models/gltf/Soldier.glb',
-      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
+      '/models/soldier.glb', // ← ВАША МОДЕЛЬ СОЛДАТА
+      'https://threejs.org/examples/models/gltf/Soldier.glb', // Fallback
     ],
     swat: [
-      'https://threejs.org/examples/models/gltf/Soldier.glb',
-      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
+      '/models/swat.glb', // ← ВАША МОДЕЛЬ SWAT/ТЯЖЁЛОГО БОЙЦА (опционально)
+      '/models/soldier.glb', // Fallback на солдата
     ],
   };
 
