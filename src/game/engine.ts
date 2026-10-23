@@ -131,7 +131,7 @@ export class GameEngine {
     this.gltfLoader = new GLTFLoader();
 
     this.state = {
-      squadCount: 5,
+      squadCount: 1,
       maxSquad: 100,
       weapon: WeaponType.RIFLE,
       wave: 1,
@@ -2529,7 +2529,7 @@ export class GameEngine {
     this.particles = [];
 
     this.state = {
-      squadCount: 5,
+      squadCount: 1,
       maxSquad: 100,
       weapon: WeaponType.RIFLE,
       wave: 1,

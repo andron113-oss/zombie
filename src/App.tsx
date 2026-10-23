@@ -5,7 +5,7 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const [gameState, setGameState] = useState<GameState>({
-    squadCount: 5,
+    squadCount: 1,
     maxSquad: 100,
     weapon: WeaponType.RIFLE,
     wave: 1,
