@@ -1514,21 +1514,26 @@ export class GameEngine {
     this.squadMembers = [];
     this.squadFireTimers = [];
 
-    const count = Math.min(this.state.squadCount, 20); // Visual limit
-    const rows = Math.ceil(count / 5);
+    const count = Math.min(this.state.squadCount, 50); // Increased visual limit to 50
+    const colsPerRow = Math.min(count, 10); // Max 10 soldiers per row
+    const rows = Math.ceil(count / colsPerRow);
 
     for (let i = 0; i < count; i++) {
       const soldier = this.createCharacterModel(false);
-      const row = Math.floor(i / 5);
-      const col = i % 5;
-      const spacing = 1.2;
-      const xOffset = (col - Math.min(count - row * 5, 4) / 2) * spacing;
-      soldier.position.set(xOffset, 0, 5 + row * 1.2);
+      const row = Math.floor(i / colsPerRow);
+      const col = i % colsPerRow;
+      const spacing = 0.7; // Tighter spacing between soldiers
+      const rowSpacing = 0.9; // Tighter spacing between rows
+      const soldiersInRow = Math.min(count - row * colsPerRow, colsPerRow);
+      const xOffset = (col - (soldiersInRow - 1) / 2) * spacing;
+      soldier.position.set(xOffset, 0, 5 + row * rowSpacing);
       soldier.rotation.y = Math.PI;
       this.squadGroup.add(soldier);
       this.squadMembers.push(soldier);
       this.squadFireTimers.push(Math.random() * 0.5);
     }
+    
+    console.log(`👥 Squad updated: ${count} soldiers visible`);
   }
 
   private initCrosshair() {
@@ -1608,9 +1613,11 @@ export class GameEngine {
     // Create bullets from each soldier position
     const direction = new THREE.Vector3(0, 0, -1); // Shoot straight forward
     
-    // Fire from each squad member
+    // Fire from each squad member - use WORLD position (not local)
     this.squadMembers.forEach((soldier, index) => {
-      const bulletOrigin = soldier.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+      const worldPos = new THREE.Vector3();
+      soldier.getWorldPosition(worldPos);
+      const bulletOrigin = worldPos.clone().add(new THREE.Vector3(0, 1.2, 0));
       this.createBulletDirection(bulletOrigin, direction, stats.damage, true);
       
       // Muzzle flash for each soldier
@@ -1899,12 +1906,16 @@ export class GameEngine {
     if (!block.mesh || !block.mesh.parent) return; // Already collected/removed
     soundSystem.collectBonus();
     const type = block.type;
+    
+    console.log(`🎁 Collected bonus: ${type}`);
 
     switch (type) {
       case 'squad':
         if (this.state.squadCount < this.state.maxSquad) {
           this.state.squadCount++;
+          console.log(`➕ Squad count increased to: ${this.state.squadCount}`);
           this.updateSquadVisuals();
+          this.notifyState(); // Update UI
         }
         break;
       case 'weapon_rifle':
