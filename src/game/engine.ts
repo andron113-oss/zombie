@@ -113,8 +113,6 @@ export class GameEngine {
   };
 
   // Environment
-  private water!: THREE.Mesh;
-  private waterTime = 0;
   private sunLight!: THREE.DirectionalLight;
   private composer!: EffectComposer;
 
@@ -454,56 +452,29 @@ export class GameEngine {
       }
     }
 
-    // Water on both sides (simplified for performance)
-    const waterGeo = new THREE.PlaneGeometry(40, 120, 32, 32); // Reduced from 64x64
-    const waterMat = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 },
-        waterColor: { value: new THREE.Color(0x1a5a8a) },
-        foamColor: { value: new THREE.Color(0x3a8aba) },
-      },
-      vertexShader: `
-        uniform float time;
-        varying vec2 vUv;
-        varying float vWave;
-        void main() {
-          vUv = uv;
-          vec3 pos = position;
-          float wave = sin(pos.x * 2.0 + time * 2.0) * 0.15 + 
-                       cos(pos.y * 1.5 + time * 1.5) * 0.1;
-          pos.z += wave;
-          vWave = wave;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 waterColor;
-        uniform vec3 foamColor;
-        uniform float time;
-        varying vec2 vUv;
-        varying float vWave;
-        void main() {
-          float foam = smoothstep(0.1, 0.15, vWave);
-          vec3 color = mix(waterColor, foamColor, foam * 0.5);
-          float spec = pow(max(0.0, sin(vUv.x * 20.0 + time) * sin(vUv.y * 15.0 + time * 0.7)), 8.0);
-          color += vec3(spec * 0.3);
-          gl_FragColor = vec4(color, 0.9);
-        }
-      `,
-      transparent: true,
+    // Forest on both sides (instead of water)
+    // Left forest ground
+    const forestGroundGeo = new THREE.PlaneGeometry(40, 120);
+    const forestGroundMat = new THREE.MeshStandardMaterial({
+      color: 0x2d4a1d,
+      roughness: 0.9,
     });
+    
+    const leftForestGround = new THREE.Mesh(forestGroundGeo, forestGroundMat);
+    leftForestGround.rotation.x = -Math.PI / 2;
+    leftForestGround.position.set(-26, -0.3, -40);
+    leftForestGround.receiveShadow = true;
+    this.scene.add(leftForestGround);
 
-    // Left water
-    this.water = new THREE.Mesh(waterGeo, waterMat);
-    this.water.rotation.x = -Math.PI / 2;
-    this.water.position.set(-26, -0.5, -40);
-    this.scene.add(this.water);
+    // Right forest ground
+    const rightForestGround = new THREE.Mesh(forestGroundGeo.clone(), forestGroundMat.clone());
+    rightForestGround.rotation.x = -Math.PI / 2;
+    rightForestGround.position.set(26, -0.3, -40);
+    rightForestGround.receiveShadow = true;
+    this.scene.add(rightForestGround);
 
-    // Right water
-    const water2 = new THREE.Mesh(waterGeo.clone(), waterMat.clone());
-    water2.rotation.x = -Math.PI / 2;
-    water2.position.set(26, -0.5, -40);
-    this.scene.add(water2);
+    // Add trees on both sides
+    this.addForestTrees();
 
     // Street lights (reduced for performance)
     for (let i = 0; i < 4; i++) {
@@ -694,6 +665,75 @@ export class GameEngine {
     });
   }
 
+  private addForestTrees() {
+    // Create trees on both sides of the road
+    const treeTrunkGeo = new THREE.CylinderGeometry(0.3, 0.4, 3, 8);
+    const treeTrunkMat = new THREE.MeshStandardMaterial({
+      color: 0x4a3520,
+      roughness: 0.9,
+    });
+
+    const treeLeavesGeo = new THREE.ConeGeometry(2, 4, 8);
+    const treeLeavesMat = new THREE.MeshStandardMaterial({
+      color: 0x2d5a1d,
+      roughness: 0.8,
+    });
+
+    // Add trees on left side
+    for (let i = 0; i < 20; i++) {
+      const tree = new THREE.Group();
+      
+      const trunk = new THREE.Mesh(treeTrunkGeo, treeTrunkMat);
+      trunk.position.y = 1.5;
+      trunk.castShadow = true;
+      tree.add(trunk);
+
+      const leaves = new THREE.Mesh(treeLeavesGeo, treeLeavesMat);
+      leaves.position.y = 4.5;
+      leaves.castShadow = true;
+      tree.add(leaves);
+
+      // Random position on left side
+      const x = -10 - Math.random() * 20;
+      const z = -i * 6 - Math.random() * 3;
+      tree.position.set(x, 0, z);
+      
+      // Random scale and rotation
+      const scale = 0.8 + Math.random() * 0.4;
+      tree.scale.setScalar(scale);
+      tree.rotation.y = Math.random() * Math.PI * 2;
+      
+      this.scene.add(tree);
+    }
+
+    // Add trees on right side
+    for (let i = 0; i < 20; i++) {
+      const tree = new THREE.Group();
+      
+      const trunk = new THREE.Mesh(treeTrunkGeo.clone(), treeTrunkMat.clone());
+      trunk.position.y = 1.5;
+      trunk.castShadow = true;
+      tree.add(trunk);
+
+      const leaves = new THREE.Mesh(treeLeavesGeo.clone(), treeLeavesMat.clone());
+      leaves.position.y = 4.5;
+      leaves.castShadow = true;
+      tree.add(leaves);
+
+      // Random position on right side
+      const x = 10 + Math.random() * 20;
+      const z = -i * 6 - Math.random() * 3;
+      tree.position.set(x, 0, z);
+      
+      // Random scale and rotation
+      const scale = 0.8 + Math.random() * 0.4;
+      tree.scale.setScalar(scale);
+      tree.rotation.y = Math.random() * Math.PI * 2;
+      
+      this.scene.add(tree);
+    }
+  }
+
   private initLighting() {
     // Ambient - much brighter
     const ambient = new THREE.AmbientLight(0x8899bb, 1.2);
@@ -801,7 +841,7 @@ export class GameEngine {
         
         // Rotate to face correct direction
         // Models from Mixamo face +Z, we need them to face -Z (towards camera)
-        model.rotation.set(0, Math.PI, 0);
+        model.rotation.set(0, 0, 0);
         
         console.log(`🎯 ${modelName} final transform:`, {
           position: `[${model.position.x.toFixed(2)}, ${model.position.y.toFixed(2)}, ${model.position.z.toFixed(2)}]`,
@@ -1618,14 +1658,14 @@ export class GameEngine {
       const worldPos = new THREE.Vector3();
       soldier.getWorldPosition(worldPos);
       const bulletOrigin = worldPos.clone().add(new THREE.Vector3(0, 1.2, 0));
-      this.createBulletDirection(bulletOrigin, direction, stats.damage, true);
+      this.createBulletDirection(bulletOrigin, direction, stats.damage, true, stats.range);
       
       // Muzzle flash for each soldier
       this.createMuzzleFlash(bulletOrigin.clone().add(new THREE.Vector3(0, 0, -0.5)));
     });
   }
 
-  private createBulletDirection(from: THREE.Vector3, direction: THREE.Vector3, damage: number, isPlayer: boolean) {
+  private createBulletDirection(from: THREE.Vector3, direction: THREE.Vector3, damage: number, isPlayer: boolean, range: number = 60) {
     if (!from || !direction || isNaN(from.x) || isNaN(direction.x)) return;
     
     const bulletGeo = new THREE.SphereGeometry(0.05, 8, 8);
@@ -1638,15 +1678,15 @@ export class GameEngine {
     bullet.position.copy(from);
     this.scene.add(bullet);
 
-    // Add point light for glow effect
-    const light = new THREE.PointLight(isPlayer ? 0xffff00 : 0xff0000, 0.5, 2);
-    bullet.add(light);
+    // Calculate life based on range (no point light for performance)
+    const speed = 80;
+    const life = range / speed;
 
     this.bullets.push({
       mesh: bullet,
-      velocity: direction.clone().multiplyScalar(50),
+      velocity: direction.clone().multiplyScalar(speed),
       damage,
-      life: 2,
+      life: life,
       isPlayer,
     });
   }
@@ -2116,11 +2156,7 @@ export class GameEngine {
       return;
     }
 
-    // Update water
-    this.waterTime += delta;
-    if (this.water.material instanceof THREE.ShaderMaterial) {
-      (this.water.material.uniforms.time as { value: number }).value = this.waterTime;
-    }
+    // Water removed - using forest instead
 
     // Camera shake
     if (this.cameraShake > 0) {
