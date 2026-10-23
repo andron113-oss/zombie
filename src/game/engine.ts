@@ -777,35 +777,6 @@ export class GameEngine {
           }
         });
         
-          // Add animation
-          const animations = this.animationCache.get(modelName);
-          if (animations && animations.length > 0) {
-            const mixer = new THREE.AnimationMixer(model);
-            
-            // Find appropriate animation
-            let animationClip: THREE.AnimationClip;
-            if (isZombie) {
-              // Try to find walk/run for zombies
-              animationClip = animations.find(anim => 
-                anim.name.toLowerCase().includes('walk') || 
-                anim.name.toLowerCase().includes('run')
-              ) || animations[0];
-            } else {
-              // Try to find idle for soldiers
-              animationClip = animations.find(anim => 
-                anim.name.toLowerCase().includes('idle')
-              ) || animations[0];
-            }
-            
-            const action = mixer.clipAction(animationClip);
-            action.play();
-            this.animationMixers.push(mixer);
-            console.log(`🎬 Added animation for ${modelName}: ${animationClip.name}`);
-            
-            // Store animation info for movement
-            model.userData.animationName = animationClip.name;
-            model.userData.isInPlaceAnimation = animationClip.name.toLowerCase().includes('inplace');
-          }        
         // Add type-specific visual effects for zombies
         if (isZombie) {
           if (zombieType === 'exploder') {
@@ -868,6 +839,36 @@ export class GameEngine {
             shoulderR.scale.set(1.2, 0.9, 1);
             model.add(shoulderR);
           }
+        }
+        
+        // CRITICAL: Create AnimationMixer AFTER all transformations are applied!
+        const animations = this.animationCache.get(modelName);
+        if (animations && animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(model);
+          
+          // Find appropriate animation
+          let animationClip: THREE.AnimationClip;
+          if (isZombie) {
+            // Try to find walk/run for zombies
+            animationClip = animations.find(anim => 
+              anim.name.toLowerCase().includes('walk') || 
+              anim.name.toLowerCase().includes('run')
+            ) || animations[0];
+          } else {
+            // Try to find idle for soldiers
+            animationClip = animations.find(anim => 
+              anim.name.toLowerCase().includes('idle')
+            ) || animations[0];
+          }
+          
+          const action = mixer.clipAction(animationClip);
+          action.play();
+          this.animationMixers.push(mixer);
+          console.log(`🎬 Added animation for ${modelName}: ${animationClip.name}`);
+          
+          // Store animation info for movement
+          model.userData.animationName = animationClip.name;
+          model.userData.isInPlaceAnimation = animationClip.name.toLowerCase().includes('inplace');
         }
         
         // Return the model directly - it will be positioned and moved by the game logic
