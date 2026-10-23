@@ -20,6 +20,7 @@ function App() {
     paused: false,
   });
   const [started, setStarted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [damageFlash, setDamageFlash] = useState(false);
   const [waveNotification, setWaveNotification] = useState(false);
   const [combo, setCombo] = useState(0);
@@ -52,7 +53,12 @@ function App() {
   useEffect(() => {
     if (!started || !containerRef.current) return;
 
-    const engine = new GameEngine(containerRef.current, handleStateChange);
+    setLoading(true);
+    const engine = new GameEngine(
+      containerRef.current, 
+      handleStateChange,
+      () => setLoading(false)
+    );
     engineRef.current = engine;
 
     return () => {
@@ -144,6 +150,11 @@ function App() {
             <span>🌐 Three.js</span>
             <span>•</span>
             <span>⚡ WebGL</span>
+            <span>•</span>
+            <span>🎨 Реальные 3D модели</span>
+          </div>
+          <div className="mt-2 text-xs text-gray-700">
+            Модели: Three.js Examples (MIT License)
           </div>
         </div>
       </div>
@@ -154,6 +165,22 @@ function App() {
     <div className="w-full h-screen relative overflow-hidden bg-black">
       {/* Game Canvas */}
       <div ref={containerRef} className="absolute inset-0" />
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="text-center">
+            <div className="text-6xl mb-4 animate-bounce">🎮</div>
+            <div className="text-2xl text-white font-bold mb-2">Загрузка 3D моделей...</div>
+            <div className="text-sm text-gray-400 mb-4">Скачивание реальных моделей из интернета</div>
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Damage flash overlay */}
       {damageFlash && (

@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { soundSystem } from './sounds';
 
 // ============= TYPES =============
@@ -82,17 +83,45 @@ export class GameEngine {
   private zombiePool: THREE.Group[] = [];
   private bulletPool: THREE.Mesh[] = [];
 
+  // Model loading
+  private gltfLoader!: GLTFLoader;
+  private modelCache: Map<string, THREE.Group> = new Map();
+  private modelsLoaded = false;
+  private onModelsLoaded: (() => void) | null = null;
+
+  // Model URLs (from reliable sources)
+  private readonly MODEL_URLS = {
+    zombie: [
+      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
+      'https://threejs.org/examples/models/gltf/Soldier.glb',
+    ],
+    soldier: [
+      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
+      'https://threejs.org/examples/models/gltf/Soldier.glb',
+    ],
+    swat: [
+      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
+      'https://threejs.org/examples/models/gltf/Soldier.glb',
+    ],
+  };
+
   // Environment
   private water!: THREE.Mesh;
   private waterTime = 0;
   private sunLight!: THREE.DirectionalLight;
   private composer!: EffectComposer;
 
-  constructor(container: HTMLElement, onStateChange: (state: GameState) => void) {
+  constructor(
+    container: HTMLElement, 
+    onStateChange: (state: GameState) => void,
+    onReady?: () => void
+  ) {
     this.clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
     this.onStateChange = onStateChange;
+    this.onModelsLoaded = onReady || null;
+    this.gltfLoader = new GLTFLoader();
 
     this.state = {
       squadCount: 5,
@@ -115,11 +144,75 @@ export class GameEngine {
     this.initPostProcessing(container); // Must be AFTER initScene (needs scene & camera)
     this.initEnvironment();
     this.initLighting();
-    this.initSquad();
-    this.initCrosshair();
-    this.initEventListeners(container);
-    this.startWave();
-    this.animate();
+    
+    // Load models then start game
+    this.loadModels().then(() => {
+      this.initSquad();
+      this.initCrosshair();
+      this.initEventListeners(container);
+      this.startWave();
+      this.animate();
+    });
+  }
+
+  private async loadModels(): Promise<void> {
+    const loadModelWithFallback = async (urls: string[], name: string): Promise<THREE.Group | null> => {
+      for (const url of urls) {
+        try {
+          const model = await new Promise<THREE.Group>((resolve, reject) => {
+            this.gltfLoader.load(
+              url,
+              (gltf) => {
+                const model = gltf.scene;
+                // Enable shadows
+                model.traverse((child) => {
+                  if (child instanceof THREE.Mesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                  }
+                });
+                resolve(model);
+              },
+              undefined,
+              (error) => {
+                reject(error);
+              }
+            );
+          });
+          this.modelCache.set(name, model);
+          console.log(`Loaded model ${name} from ${url}`);
+          return model;
+        } catch (error) {
+          console.warn(`Failed to load ${name} from ${url}, trying next...`);
+        }
+      }
+      console.warn(`All URLs failed for ${name}, will use procedural fallback`);
+      return null;
+    };
+
+    try {
+      await Promise.all([
+        loadModelWithFallback(this.MODEL_URLS.zombie, 'zombie'),
+        loadModelWithFallback(this.MODEL_URLS.soldier, 'soldier'),
+        loadModelWithFallback(this.MODEL_URLS.swat, 'swat'),
+      ]);
+      
+      // Check if at least one model loaded
+      this.modelsLoaded = this.modelCache.size > 0;
+      if (this.modelsLoaded) {
+        console.log(`Loaded ${this.modelCache.size} models successfully`);
+      } else {
+        console.warn('No models loaded, using procedural fallback for all');
+      }
+    } catch (error) {
+      console.warn('Model loading failed, using fallback procedural models');
+      this.modelsLoaded = false;
+    }
+    
+    // Notify that models are loaded
+    if (this.onModelsLoaded) {
+      this.onModelsLoaded();
+    }
   }
 
   private initRenderer(container: HTMLElement) {
@@ -560,6 +653,127 @@ export class GameEngine {
   private createCharacterModel(isZombie: boolean, zombieType: string = 'normal'): THREE.Group {
     const group = new THREE.Group();
 
+    // Try to use loaded models first
+    if (this.modelsLoaded) {
+      if (isZombie) {
+        const zombieModel = this.modelCache.get('zombie');
+        if (zombieModel) {
+          const clone = zombieModel.clone();
+          
+          // Scale and adjust based on zombie type
+          const scales: Record<string, number> = {
+            normal: 1,
+            fast: 0.85,
+            tank: 1.5,
+            armored: 1.2,
+            exploder: 1.1,
+          };
+          const scale = scales[zombieType] || 1;
+          clone.scale.setScalar(scale);
+          
+          // Rotate to face player (soldier model faces -Z by default)
+          clone.rotation.y = Math.PI;
+          
+          // Change materials color for zombie appearance
+          clone.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+              // Make it look more zombie-like
+              const colors: Record<string, number> = {
+                normal: 0x4a6b3a,
+                fast: 0x6b4a3a,
+                tank: 0x3a4a6b,
+                armored: 0x5a5a5a,
+                exploder: 0x6b3a3a,
+              };
+              child.material.color.setHex(colors[zombieType] || 0x4a6b3a);
+              child.material.emissive.setHex(0x111100);
+              child.material.emissiveIntensity = 0.2;
+            }
+          });
+          
+          // Add type-specific visual effects
+          if (zombieType === 'exploder') {
+            const glowGeo = new THREE.SphereGeometry(0.6 * scale, 12, 12);
+            const glowMat = new THREE.MeshStandardMaterial({
+              color: 0xff4400,
+              emissive: 0xff4400,
+              emissiveIntensity: 3,
+              transparent: true,
+              opacity: 0.5,
+            });
+            const glow = new THREE.Mesh(glowGeo, glowMat);
+            glow.position.y = 1;
+            clone.add(glow);
+            
+            // Add pulsing light
+            const light = new THREE.PointLight(0xff4400, 2, 3);
+            light.position.y = 1;
+            clone.add(light);
+          }
+          
+          if (zombieType === 'armored') {
+            // Add armor plates
+            const plateMat = new THREE.MeshStandardMaterial({ 
+              color: 0x666666, 
+              metalness: 0.95, 
+              roughness: 0.2 
+            });
+            
+            // Chest armor
+            const chestPlate = new THREE.Mesh(
+              new THREE.BoxGeometry(0.7 * scale, 0.6 * scale, 0.15 * scale),
+              plateMat
+            );
+            chestPlate.position.set(0, 1.2 * scale, -0.25 * scale);
+            clone.add(chestPlate);
+            
+            // Shoulder pads
+            const shoulderGeo = new THREE.SphereGeometry(0.2 * scale, 8, 6);
+            const shoulderL = new THREE.Mesh(shoulderGeo, plateMat);
+            shoulderL.position.set(-0.4 * scale, 1.5 * scale, 0);
+            shoulderL.scale.set(1, 0.7, 1);
+            clone.add(shoulderL);
+            const shoulderR = new THREE.Mesh(shoulderGeo, plateMat);
+            shoulderR.position.set(0.4 * scale, 1.5 * scale, 0);
+            shoulderR.scale.set(1, 0.7, 1);
+            clone.add(shoulderR);
+          }
+          
+          if (zombieType === 'tank') {
+            // Add extra muscle mass
+            const muscleMat = new THREE.MeshStandardMaterial({ 
+              color: 0x3a4a6b, 
+              roughness: 0.8 
+            });
+            const muscleGeo = new THREE.SphereGeometry(0.3 * scale, 10, 8);
+            
+            const shoulderL = new THREE.Mesh(muscleGeo, muscleMat);
+            shoulderL.position.set(-0.5 * scale, 1.5 * scale, 0);
+            shoulderL.scale.set(1.2, 0.9, 1);
+            clone.add(shoulderL);
+            
+            const shoulderR = new THREE.Mesh(muscleGeo, muscleMat);
+            shoulderR.position.set(0.5 * scale, 1.5 * scale, 0);
+            shoulderR.scale.set(1.2, 0.9, 1);
+            clone.add(shoulderR);
+          }
+          
+          group.add(clone);
+          return group;
+        }
+      } else {
+        const soldierModel = this.modelCache.get('soldier');
+        if (soldierModel) {
+          const clone = soldierModel.clone();
+          // Rotate to face zombies
+          clone.rotation.y = Math.PI;
+          group.add(clone);
+          return group;
+        }
+      }
+    }
+
+    // Fallback to procedural models
     if (isZombie) {
       this.createDetailedZombie(group, zombieType);
     } else {
