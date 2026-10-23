@@ -21,6 +21,7 @@ export interface GameState {
   speedBoostTimer: number;
   gameOver: boolean;
   paused: boolean;
+  squadX: number; // Position of squad on X axis
 }
 
 export enum WeaponType {
@@ -58,12 +59,17 @@ export class GameEngine {
   private mouse: THREE.Vector2;
 
   // Game objects
+  private squadGroup: THREE.Group = new THREE.Group();
   private squadMembers: THREE.Group[] = [];
   private zombies: ZombieData[] = [];
   private bonusBlocks: BonusBlockData[] = [];
   private bullets: BulletData[] = [];
   private particles: ParticleData[] = [];
   private bloodSplatters: THREE.Mesh[] = [];
+  
+  // Squad movement
+  private targetSquadX = 0;
+  private squadMoveSpeed = 10;
 
   // Game state
   public state: GameState;
@@ -137,6 +143,7 @@ export class GameEngine {
       speedBoostTimer: 0,
       gameOver: false,
       paused: false,
+      squadX: 0,
     };
 
     this.initRenderer(container);
@@ -327,6 +334,9 @@ export class GameEngine {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
     this.camera.position.set(0, 8, 12);
     this.camera.lookAt(0, 1, -15);
+    
+    // Add squad group to scene
+    this.scene.add(this.squadGroup);
   }
 
   private initEnvironment() {
@@ -662,14 +672,17 @@ export class GameEngine {
           
           // Scale and adjust based on zombie type
           const scales: Record<string, number> = {
-            normal: 1,
-            fast: 0.85,
-            tank: 1.5,
-            armored: 1.2,
-            exploder: 1.1,
+            normal: 0.01,
+            fast: 0.0085,
+            tank: 0.015,
+            armored: 0.012,
+            exploder: 0.011,
           };
-          const scale = scales[zombieType] || 1;
+          const scale = scales[zombieType] || 0.01;
           clone.scale.setScalar(scale);
+          
+          // Adjust vertical position
+          clone.position.y = -0.9;
           
           // Rotate to face player (soldier model faces -Z by default)
           clone.rotation.y = Math.PI;
@@ -691,9 +704,9 @@ export class GameEngine {
             }
           });
           
-          // Add type-specific visual effects
+          // Add type-specific visual effects (scaled appropriately)
           if (zombieType === 'exploder') {
-            const glowGeo = new THREE.SphereGeometry(0.6 * scale, 12, 12);
+            const glowGeo = new THREE.SphereGeometry(0.8, 12, 12);
             const glowMat = new THREE.MeshStandardMaterial({
               color: 0xff4400,
               emissive: 0xff4400,
@@ -721,20 +734,20 @@ export class GameEngine {
             
             // Chest armor
             const chestPlate = new THREE.Mesh(
-              new THREE.BoxGeometry(0.7 * scale, 0.6 * scale, 0.15 * scale),
+              new THREE.BoxGeometry(1.2, 1.0, 0.3),
               plateMat
             );
-            chestPlate.position.set(0, 1.2 * scale, -0.25 * scale);
+            chestPlate.position.set(0, 1.2, -0.5);
             clone.add(chestPlate);
             
             // Shoulder pads
-            const shoulderGeo = new THREE.SphereGeometry(0.2 * scale, 8, 6);
+            const shoulderGeo = new THREE.SphereGeometry(0.4, 8, 6);
             const shoulderL = new THREE.Mesh(shoulderGeo, plateMat);
-            shoulderL.position.set(-0.4 * scale, 1.5 * scale, 0);
+            shoulderL.position.set(-0.8, 1.5, 0);
             shoulderL.scale.set(1, 0.7, 1);
             clone.add(shoulderL);
             const shoulderR = new THREE.Mesh(shoulderGeo, plateMat);
-            shoulderR.position.set(0.4 * scale, 1.5 * scale, 0);
+            shoulderR.position.set(0.8, 1.5, 0);
             shoulderR.scale.set(1, 0.7, 1);
             clone.add(shoulderR);
           }
@@ -745,15 +758,15 @@ export class GameEngine {
               color: 0x3a4a6b, 
               roughness: 0.8 
             });
-            const muscleGeo = new THREE.SphereGeometry(0.3 * scale, 10, 8);
+            const muscleGeo = new THREE.SphereGeometry(0.5, 10, 8);
             
             const shoulderL = new THREE.Mesh(muscleGeo, muscleMat);
-            shoulderL.position.set(-0.5 * scale, 1.5 * scale, 0);
+            shoulderL.position.set(-1.0, 1.5, 0);
             shoulderL.scale.set(1.2, 0.9, 1);
             clone.add(shoulderL);
             
             const shoulderR = new THREE.Mesh(muscleGeo, muscleMat);
-            shoulderR.position.set(0.5 * scale, 1.5 * scale, 0);
+            shoulderR.position.set(1.0, 1.5, 0);
             shoulderR.scale.set(1.2, 0.9, 1);
             clone.add(shoulderR);
           }
@@ -765,6 +778,9 @@ export class GameEngine {
         const soldierModel = this.modelCache.get('soldier');
         if (soldierModel) {
           const clone = soldierModel.clone();
+          // Scale down and position correctly
+          clone.scale.setScalar(0.01); // Soldier model is very large
+          clone.position.y = -0.9; // Adjust vertical position
           // Rotate to face zombies
           clone.rotation.y = Math.PI;
           group.add(clone);
@@ -1345,8 +1361,10 @@ export class GameEngine {
   }
 
   private updateSquadVisuals() {
-    // Remove old squad
-    this.squadMembers.forEach(m => this.scene.remove(m));
+    // Remove old squad from group
+    while (this.squadGroup.children.length > 0) {
+      this.squadGroup.remove(this.squadGroup.children[0]);
+    }
     this.squadMembers = [];
     this.squadFireTimers = [];
 
@@ -1357,11 +1375,11 @@ export class GameEngine {
       const soldier = this.createCharacterModel(false);
       const row = Math.floor(i / 5);
       const col = i % 5;
-      const spacing = 1.5;
+      const spacing = 1.2;
       const xOffset = (col - Math.min(count - row * 5, 4) / 2) * spacing;
-      soldier.position.set(xOffset, 0, 5 + row * 1.5);
+      soldier.position.set(xOffset, 0, 5 + row * 1.2);
       soldier.rotation.y = Math.PI;
-      this.scene.add(soldier);
+      this.squadGroup.add(soldier);
       this.squadMembers.push(soldier);
       this.squadFireTimers.push(Math.random() * 0.5);
     }
@@ -1384,102 +1402,53 @@ export class GameEngine {
   }
 
   private initEventListeners(container: HTMLElement) {
-    const handleInteraction = (clientX: number, clientY: number) => {
+    // Mouse/touch movement - control squad position
+    const handleMovement = (clientX: number) => {
       if (this.state.gameOver) return;
-      soundSystem.init();
       const rect = container.getBoundingClientRect();
-      this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-      this.raycaster.setFromCamera(this.mouse, this.camera);
-
-      // Check bonus blocks
-      const blockMeshes = this.bonusBlocks.map(b => b.mesh);
-      const blockHits = this.raycaster.intersectObjects(blockMeshes, true);
-      if (blockHits.length > 0) {
-        const hitObj = blockHits[0].object;
-        const hitBlock = this.bonusBlocks.find(b => {
-          let obj: THREE.Object3D | null = hitObj;
-          while (obj) {
-            if (obj === b.mesh) return true;
-            obj = obj.parent;
-          }
-          return false;
-        });
-        if (hitBlock) {
-          this.collectBonus(hitBlock);
-          return;
-        }
-      }
-
-      // Check zombies
-      const zombieMeshes = this.zombies.map(z => z.mesh);
-      const zombieHits = this.raycaster.intersectObjects(zombieMeshes, true);
-      if (zombieHits.length > 0) {
-        const hitObj = zombieHits[0].object;
-        const hitZombie = this.zombies.find(z => {
-          let obj: THREE.Object3D | null = hitObj;
-          while (obj) {
-            if (obj === z.mesh) return true;
-            obj = obj.parent;
-          }
-          return false;
-        });
-        if (hitZombie) {
-          this.playerShoot(hitZombie);
-          return;
-        }
-      }
-
-      // Shoot at ground position
-      const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      const intersection = new THREE.Vector3();
-      this.raycaster.ray.intersectPlane(groundPlane, intersection);
-      if (intersection) {
-        this.crosshairTarget.copy(intersection);
-        this.crosshairTarget.y = 0.1;
-        this.playerShoot(null);
-      }
+      const normalizedX = ((clientX - rect.left) / rect.width) * 2 - 1;
+      // Map screen X to world X (-5 to 5 range)
+      this.targetSquadX = normalizedX * 5;
+      // Clamp to road bounds
+      this.targetSquadX = Math.max(-5, Math.min(5, this.targetSquadX));
     };
 
-    container.addEventListener('click', (e) => handleInteraction(e.clientX, e.clientY));
-    container.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      handleInteraction(touch.clientX, touch.clientY);
+    // Mouse movement
+    container.addEventListener('mousemove', (e) => {
+      handleMovement(e.clientX);
     });
 
-    container.addEventListener('mousemove', (e) => {
-      if (!this.camera || !this.raycaster) return; // Safety
-      const rect = container.getBoundingClientRect();
-      this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    // Touch movement
+    container.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        handleMovement(e.touches[0].clientX);
+      }
+    });
 
-      try {
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        const intersection = new THREE.Vector3();
-        this.raycaster.ray.intersectPlane(groundPlane, intersection);
-        if (intersection && !isNaN(intersection.x)) {
-          this.crosshairTarget.lerp(intersection, 0.3);
-          this.crosshairTarget.y = 0.1;
-        }
-      } catch (_e) { /* ignore raycast errors */ }
+    // Touch start
+    container.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      soundSystem.init();
+      if (e.touches.length > 0) {
+        handleMovement(e.touches[0].clientX);
+      }
+    });
+
+    // Click to init sound
+    container.addEventListener('click', () => {
+      soundSystem.init();
     });
   }
 
-  private playerShoot(targetZombie: ZombieData | null) {
+  private squadAutoFire() {
+    // Squad shoots automatically forward
     const now = this.clock.getElapsedTime();
     const stats = WEAPON_STATS[this.state.weapon];
     const fireRate = this.state.speedBoost ? stats.fireRate * 0.5 : stats.fireRate;
 
     if (now - this.lastFireTime < fireRate) return;
     this.lastFireTime = now;
-
-    // Validate target still exists
-    if (targetZombie && (!targetZombie.mesh || !targetZombie.mesh.parent)) {
-      targetZombie = null;
-    }
 
     // Camera shake
     this.cameraShake = 0.1;
@@ -1489,20 +1458,40 @@ export class GameEngine {
     else if (this.state.weapon === WeaponType.SNIPER) soundSystem.shootSniper();
     else soundSystem.shoot();
 
-    // Create bullet
-    this.createBullet(
-      new THREE.Vector3(0, 1.2, 8),
-      targetZombie ? targetZombie.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)) : this.crosshairTarget.clone(),
-      stats.damage,
-      true
-    );
+    // Create bullet from squad position shooting forward
+    const bulletOrigin = new THREE.Vector3(this.state.squadX, 1.2, 4);
+    const direction = new THREE.Vector3(0, 0, -1); // Shoot straight forward
+    
+    this.createBulletDirection(bulletOrigin, direction, stats.damage, true);
 
     // Muzzle flash
-    this.createMuzzleFlash(new THREE.Vector3(0, 1.2, 7.5));
+    this.createMuzzleFlash(bulletOrigin.clone().add(new THREE.Vector3(0, 0, -0.5)));
+  }
 
-    if (targetZombie) {
-      this.damageZombie(targetZombie, stats.damage);
-    }
+  private createBulletDirection(from: THREE.Vector3, direction: THREE.Vector3, damage: number, isPlayer: boolean) {
+    if (!from || !direction || isNaN(from.x) || isNaN(direction.x)) return;
+    
+    const bulletGeo = new THREE.SphereGeometry(0.05, 8, 8);
+    const bulletMat = new THREE.MeshBasicMaterial({
+      color: isPlayer ? 0xffff00 : 0xff0000,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+    bullet.position.copy(from);
+    this.scene.add(bullet);
+
+    // Add point light for glow effect
+    const light = new THREE.PointLight(isPlayer ? 0xffff00 : 0xff0000, 0.5, 2);
+    bullet.add(light);
+
+    this.bullets.push({
+      mesh: bullet,
+      velocity: direction.clone().multiplyScalar(50),
+      damage,
+      life: 2,
+      isPlayer,
+    });
   }
 
   private createBullet(from: THREE.Vector3, to: THREE.Vector3, damage: number, isPlayer: boolean) {
@@ -1997,7 +1986,19 @@ export class GameEngine {
       }
     });
 
-    // Squad auto-fire
+    // Update squad position (smooth movement)
+    const squadDx = this.targetSquadX - this.state.squadX;
+    if (Math.abs(squadDx) > 0.01) {
+      const moveAmount = Math.sign(squadDx) * Math.min(Math.abs(squadDx), this.squadMoveSpeed * delta);
+      this.state.squadX += moveAmount;
+      this.squadGroup.position.x = this.state.squadX;
+      this.notifyState();
+    }
+
+    // Squad auto-fire (shoots forward)
+    this.squadAutoFire();
+
+    // Individual squad member animations (optional visual firing)
     this.squadMembers.forEach((soldier, i) => {
       this.squadFireTimers[i] += delta;
       const fireRate = this.state.speedBoost ? 0.3 : 0.6;
@@ -2050,19 +2051,66 @@ export class GameEngine {
 
     // Update bullets
     this.bullets.forEach(bullet => {
-      if (!bullet.mesh || !bullet.trail) return; // Safety
-      const move = bullet.direction.clone().multiplyScalar(bullet.speed * delta);
-      bullet.mesh.position.add(move);
-      bullet.trail.position.copy(bullet.mesh.position);
-      bullet.trail.lookAt(bullet.mesh.position.clone().add(bullet.direction));
-      bullet.distance += bullet.speed * delta;
+      if (!bullet.mesh) return; // Safety
+      
+      // New style bullets with velocity
+      if (bullet.velocity) {
+        const move = bullet.velocity.clone().multiplyScalar(delta);
+        bullet.mesh.position.add(move);
+        if (bullet.life !== undefined) {
+          bullet.life -= delta;
+        }
+      }
+      // Old style bullets with direction/speed
+      else if (bullet.direction && bullet.speed !== undefined && bullet.trail) {
+        const move = bullet.direction.clone().multiplyScalar(bullet.speed * delta);
+        bullet.mesh.position.add(move);
+        bullet.trail.position.copy(bullet.mesh.position);
+        bullet.trail.lookAt(bullet.mesh.position.clone().add(bullet.direction));
+        if (bullet.distance !== undefined) {
+          bullet.distance += bullet.speed * delta;
+        }
+      }
+      
+      // Check collision with zombies (player bullets only)
+      if (bullet.isPlayer) {
+        for (const zombie of this.zombies) {
+          if (!zombie.mesh || !zombie.mesh.parent) continue;
+          const dist = bullet.mesh.position.distanceTo(zombie.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)));
+          if (dist < 1.5) {
+            this.damageZombie(zombie, bullet.damage);
+            bullet.life = 0; // Mark for removal
+            break;
+          }
+        }
+      }
+      
+      // Check collision with bonus blocks (player bullets only)
+      if (bullet.isPlayer) {
+        for (const block of this.bonusBlocks) {
+          if (!block.mesh || !block.mesh.parent) continue;
+          const dist = bullet.mesh.position.distanceTo(block.mesh.position);
+          if (dist < 1.5) {
+            this.collectBonus(block);
+            bullet.life = 0; // Mark for removal
+            break;
+          }
+        }
+      }
     });
+    
     // Remove old bullets
     this.bullets = this.bullets.filter(b => {
-      if (b.distance > b.maxDistance || b.mesh.position.z > 20 || b.mesh.position.z < -80) {
+      const shouldRemove = 
+        (b.life !== undefined && b.life <= 0) ||
+        (b.distance !== undefined && b.maxDistance !== undefined && b.distance > b.maxDistance) ||
+        b.mesh.position.z > 20 || 
+        b.mesh.position.z < -80;
+        
+      if (shouldRemove) {
         try {
           if (b.mesh.parent) this.scene.remove(b.mesh);
-          if (b.trail.parent) this.scene.remove(b.trail);
+          if (b.trail && b.trail.parent) this.scene.remove(b.trail);
         } catch (_e) { /* already removed */ }
         return false;
       }
@@ -2227,6 +2275,7 @@ export class GameEngine {
       speedBoostTimer: 0,
       gameOver: false,
       paused: false,
+      squadX: 0,
     };
 
     this.updateSquadVisuals();
@@ -2270,13 +2319,15 @@ interface BonusBlockData {
 
 interface BulletData {
   mesh: THREE.Mesh;
-  trail: THREE.Mesh;
-  direction: THREE.Vector3;
-  speed: number;
-  distance: number;
-  maxDistance: number;
+  trail?: THREE.Mesh;
+  direction?: THREE.Vector3;
+  velocity?: THREE.Vector3;
+  speed?: number;
+  distance?: number;
+  maxDistance?: number;
   damage: number;
   isPlayer: boolean;
+  life?: number;
 }
 
 interface ParticleData {

@@ -18,6 +18,7 @@ function App() {
     speedBoostTimer: 0,
     gameOver: false,
     paused: false,
+    squadX: 0,
   });
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -279,11 +280,19 @@ function App() {
           </div>
         )}
 
-        {/* Crosshair indicator */}
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-          <div className="w-8 h-8 border-2 border-red-500/50 rounded-full flex items-center justify-center animate-spin" style={{ animationDuration: '4s' }}>
-            <div className="w-1 h-1 bg-red-500 rounded-full" />
+        {/* Squad position indicator */}
+        <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2">
+          <div className="w-64 h-2 bg-gray-800/50 rounded-full overflow-hidden border border-gray-600/30">
+            <div 
+              className="h-full bg-blue-500 rounded-full transition-all duration-100"
+              style={{ 
+                width: '8px',
+                marginLeft: `${((gameState.squadX + 5) / 10) * 100}%`,
+                transform: 'translateX(-50%)'
+              }}
+            />
           </div>
+          <div className="text-center text-xs text-gray-400 mt-1">Позиция отряда</div>
         </div>
 
         {/* Combo indicator */}
@@ -315,7 +324,7 @@ function App() {
         {/* Bottom hint */}
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
           <div className="bg-black/40 backdrop-blur-sm rounded-lg px-4 py-2 text-gray-400 text-xs text-center">
-            🎯 Стреляй по зомби • 📦 Собирай блоки справа
+            ← → Двигай мышью для перемещения отряда • Бойцы стреляют автоматически
           </div>
         </div>
       </div>
