@@ -314,7 +314,7 @@ export class GameEngine {
 
   private initScene() {
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x667788, 0.008);
+    this.scene.fog = new THREE.FogExp2(0x667788, 0.003); // Уменьшил плотность тумана для лучшей видимости
 
     // Sky gradient - sunset/dawn atmosphere
     const skyGeo = new THREE.SphereGeometry(200, 32, 32);
@@ -1950,7 +1950,7 @@ export class GameEngine {
 
     const mesh = this.createCharacterModel(true, type);
     const lane = (Math.random() - 0.5) * 8;
-    const spawnZ = -60 - Math.random() * 20;
+    const spawnZ = -25 - Math.random() * 15; // Spawn closer (was -60 to -80, now -25 to -40)
     
     // CRITICAL: Set position on the ROOT object
     mesh.position.set(lane, 0, spawnZ);
