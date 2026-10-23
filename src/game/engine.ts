@@ -1652,20 +1652,21 @@ export class GameEngine {
 
     // Create bullets from each soldier position
     const direction = new THREE.Vector3(0, 0, -1); // Shoot straight forward
+    const speedMultiplier = this.state.speedBoost ? 1.5 : 1; // Bullets fly faster with speed boost
     
     // Fire from each squad member - use WORLD position (not local)
     this.squadMembers.forEach((soldier, index) => {
       const worldPos = new THREE.Vector3();
       soldier.getWorldPosition(worldPos);
       const bulletOrigin = worldPos.clone().add(new THREE.Vector3(0, 1.2, 0));
-      this.createBulletDirection(bulletOrigin, direction, stats.damage, true, stats.range);
+      this.createBulletDirection(bulletOrigin, direction, stats.damage, true, stats.range, speedMultiplier);
       
       // Muzzle flash for each soldier
       this.createMuzzleFlash(bulletOrigin.clone().add(new THREE.Vector3(0, 0, -0.5)));
     });
   }
 
-  private createBulletDirection(from: THREE.Vector3, direction: THREE.Vector3, damage: number, isPlayer: boolean, range: number = 60) {
+  private createBulletDirection(from: THREE.Vector3, direction: THREE.Vector3, damage: number, isPlayer: boolean, range: number = 60, speedMultiplier: number = 1) {
     if (!from || !direction || isNaN(from.x) || isNaN(direction.x)) return;
     
     const bulletGeo = new THREE.SphereGeometry(0.05, 8, 8);
@@ -1679,8 +1680,9 @@ export class GameEngine {
     this.scene.add(bullet);
 
     // Calculate life based on range (no point light for performance)
-    const speed = 80;
-    const life = range / speed;
+    const baseSpeed = 80;
+    const speed = baseSpeed * speedMultiplier;
+    const life = range / baseSpeed; // Life based on base speed to maintain consistent range
 
     this.bullets.push({
       mesh: bullet,
