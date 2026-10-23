@@ -355,33 +355,17 @@ export class GameEngine {
     this.camera.position.set(0, 8, 12);
     this.camera.lookAt(0, 1, -15);
     
-    console.log('📷 Camera setup:', {
-      position: `[${this.camera.position.x.toFixed(2)}, ${this.camera.position.y.toFixed(2)}, ${this.camera.position.z.toFixed(2)}]`,
-      lookAt: '[0, 1, -15]',
-      fov: this.camera.fov,
-      near: this.camera.near,
-      far: this.camera.far
-    });
-    
-    // Add a test cube at the look-at point to verify camera is working
-    const testCubeGeo = new THREE.BoxGeometry(1, 1, 1);
-    const testCubeMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-    const testCube = new THREE.Mesh(testCubeGeo, testCubeMat);
-    testCube.position.set(0, 1, -15);
-    this.scene.add(testCube);
-    console.log('🟢 Added GREEN TEST CUBE at look-at point (0, 1, -15)');
-    
     // Add squad group to scene
     this.scene.add(this.squadGroup);
   }
 
   private initEnvironment() {
-    // Road
-    const roadGeo = new THREE.PlaneGeometry(12, 120);
+    // Road - improved with better materials
+    const roadGeo = new THREE.PlaneGeometry(12, 120, 20, 100);
     const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x444444,
-      roughness: 0.75,
-      metalness: 0.05,
+      color: 0x3a3a3a,
+      roughness: 0.85,
+      metalness: 0.1,
     });
     const road = new THREE.Mesh(roadGeo, roadMat);
     road.rotation.x = -Math.PI / 2;
@@ -389,30 +373,84 @@ export class GameEngine {
     road.receiveShadow = true;
     this.scene.add(road);
 
-    // Road markings (reduced for performance)
-    for (let i = 0; i < 15; i++) {
-      const markGeo = new THREE.PlaneGeometry(0.2, 2);
-      const markMat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x444400 });
+    // Road texture details - cracks and patches
+    for (let i = 0; i < 8; i++) {
+      const patchGeo = new THREE.PlaneGeometry(
+        1 + Math.random() * 2,
+        1 + Math.random() * 2
+      );
+      const patchMat = new THREE.MeshStandardMaterial({
+        color: 0x2a2a2a,
+        roughness: 0.9,
+        transparent: true,
+        opacity: 0.6,
+      });
+      const patch = new THREE.Mesh(patchGeo, patchMat);
+      patch.rotation.x = -Math.PI / 2;
+      patch.position.set(
+        (Math.random() - 0.5) * 8,
+        0.005,
+        -Math.random() * 80
+      );
+      patch.rotation.z = Math.random() * Math.PI;
+      this.scene.add(patch);
+    }
+
+    // Road markings - center line (dashed)
+    for (let i = 0; i < 20; i++) {
+      const markGeo = new THREE.PlaneGeometry(0.15, 3);
+      const markMat = new THREE.MeshStandardMaterial({ 
+        color: 0xffff00, 
+        emissive: 0x666600,
+        emissiveIntensity: 0.3
+      });
       const mark = new THREE.Mesh(markGeo, markMat);
       mark.rotation.x = -Math.PI / 2;
-      mark.position.set(0, 0.01, -i * 8 + 10);
+      mark.position.set(0, 0.01, -i * 6 + 10);
       this.scene.add(mark);
     }
 
-    // Road edges / barriers (reduced for performance)
+    // Side lines (white)
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < 10; i++) {
-        const barrierGeo = new THREE.BoxGeometry(0.3, 0.8, 3);
+      for (let i = 0; i < 15; i++) {
+        const lineGeo = new THREE.PlaneGeometry(0.1, 4);
+        const lineMat = new THREE.MeshStandardMaterial({ 
+          color: 0xffffff,
+          roughness: 0.7
+        });
+        const line = new THREE.Mesh(lineGeo, lineMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(side * 5.5, 0.01, -i * 8 + 10);
+        this.scene.add(line);
+      }
+    }
+
+    // Road edges / barriers - improved
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 12; i++) {
+        // Concrete barrier
+        const barrierGeo = new THREE.BoxGeometry(0.4, 0.9, 3.5);
         const barrierMat = new THREE.MeshStandardMaterial({
-          color: 0x888888,
-          roughness: 0.6,
-          metalness: 0.3,
+          color: 0x777777,
+          roughness: 0.8,
+          metalness: 0.2,
         });
         const barrier = new THREE.Mesh(barrierGeo, barrierMat);
-        barrier.position.set(side * 6.2, 0.4, -i * 12 + 10);
-        barrier.castShadow = false; // Disable shadows for performance
+        barrier.position.set(side * 6.2, 0.45, -i * 10 + 10);
+        barrier.castShadow = false;
         barrier.receiveShadow = true;
         this.scene.add(barrier);
+
+        // Yellow stripe on barrier
+        const stripeGeo = new THREE.BoxGeometry(0.42, 0.1, 3.5);
+        const stripeMat = new THREE.MeshStandardMaterial({
+          color: 0xffaa00,
+          emissive: 0x442200,
+          emissiveIntensity: 0.2
+        });
+        const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+        stripe.position.set(side * 6.2, 0.7, -i * 10 + 10);
+        this.scene.add(stripe);
       }
     }
 
@@ -1551,6 +1589,7 @@ export class GameEngine {
 
   private squadAutoFire() {
     // Squad shoots automatically forward
+    // Number of bullets = number of soldiers
     const now = this.clock.getElapsedTime();
     const stats = WEAPON_STATS[this.state.weapon];
     const fireRate = this.state.speedBoost ? stats.fireRate * 0.5 : stats.fireRate;
@@ -1566,14 +1605,17 @@ export class GameEngine {
     else if (this.state.weapon === WeaponType.SNIPER) soundSystem.shootSniper();
     else soundSystem.shoot();
 
-    // Create bullet from squad position shooting forward
-    const bulletOrigin = new THREE.Vector3(this.state.squadX, 1.2, 4);
+    // Create bullets from each soldier position
     const direction = new THREE.Vector3(0, 0, -1); // Shoot straight forward
     
-    this.createBulletDirection(bulletOrigin, direction, stats.damage, true);
-
-    // Muzzle flash
-    this.createMuzzleFlash(bulletOrigin.clone().add(new THREE.Vector3(0, 0, -0.5)));
+    // Fire from each squad member
+    this.squadMembers.forEach((soldier, index) => {
+      const bulletOrigin = soldier.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+      this.createBulletDirection(bulletOrigin, direction, stats.damage, true);
+      
+      // Muzzle flash for each soldier
+      this.createMuzzleFlash(bulletOrigin.clone().add(new THREE.Vector3(0, 0, -0.5)));
+    });
   }
 
   private createBulletDirection(from: THREE.Vector3, direction: THREE.Vector3, damage: number, isPlayer: boolean) {
@@ -1901,75 +1943,6 @@ export class GameEngine {
     this.zombiesInWave = 5 + this.state.wave * 3;
     this.zombiesSpawned = 0;
     this.waveTimer = 0;
-    
-    // DEBUG: Spawn a test zombie right in front of camera to verify models are visible
-    if (this.state.wave === 1 && this.zombiesSpawned === 0) {
-      console.log('🔍 Spawning TEST zombie in front of camera...');
-      const testMesh = this.createCharacterModel(true, 'normal');
-      testMesh.position.set(0, 0, -5); // 5 units in front of camera (closer!)
-      
-      // Make it MUCH brighter for testing
-      testMesh.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          if (child.material instanceof THREE.MeshStandardMaterial) {
-            child.material.emissive = new THREE.Color(0x444444);
-            child.material.emissiveIntensity = 1.0;
-          }
-          // Ensure it's visible
-          child.visible = true;
-        }
-      });
-      
-      // Add a point light on the test zombie
-      const testLight = new THREE.PointLight(0xffff00, 2, 10);
-      testLight.position.copy(testMesh.position);
-      testLight.position.y = 3;
-      this.scene.add(testLight);
-      console.log('🔍 Added YELLOW LIGHT on test zombie');
-      
-      console.log('🔍 Test zombie position:', testMesh.position);
-      console.log('🔍 Test zombie scale:', testMesh.scale);
-      console.log('🔍 Test zombie rotation:', testMesh.rotation);
-      console.log('🔍 Test zombie visible:', testMesh.visible);
-      console.log('🔍 Test zombie children:', testMesh.children.length);
-      
-      this.scene.add(testMesh);
-      
-      // Add animation
-      const animations = this.animationCache.get('zombie');
-      if (animations && animations.length > 0) {
-        const mixer = new THREE.AnimationMixer(testMesh);
-        const action = mixer.clipAction(animations[0]);
-        action.play();
-        this.animationMixers.push(mixer);
-      }
-      
-      // Log world position after adding to scene
-      const worldPos = new THREE.Vector3();
-      testMesh.getWorldPosition(worldPos);
-      console.log('🔍 Test zombie WORLD position:', worldPos);
-      
-      // Add a bright marker at zombie position to verify location
-      const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
-      const markerMat = new THREE.MeshBasicMaterial({ 
-        color: 0xff0000,
-        transparent: true,
-        opacity: 0.8
-      });
-      const marker = new THREE.Mesh(markerGeo, markerMat);
-      marker.position.copy(testMesh.position);
-      marker.position.y = 2; // Above the zombie
-      this.scene.add(marker);
-      console.log('🔍 Added RED MARKER at position:', marker.position);
-      
-      // Remove after 10 seconds
-      setTimeout(() => {
-        console.log('🔍 Removing test zombie, marker, and light');
-        this.scene.remove(testMesh);
-        this.scene.remove(marker);
-        this.scene.remove(testLight);
-      }, 10000);
-    }
   }
 
   private createHealthBar(): THREE.Group {
@@ -2251,37 +2224,8 @@ export class GameEngine {
     // Squad auto-fire (shoots forward)
     this.squadAutoFire();
 
-    // Individual squad member animations (optional visual firing)
+    // Soldier bob animation
     this.squadMembers.forEach((soldier, i) => {
-      this.squadFireTimers[i] += delta;
-      const fireRate = this.state.speedBoost ? 0.3 : 0.6;
-
-      if (this.squadFireTimers[i] > fireRate && this.zombies.length > 0) {
-        this.squadFireTimers[i] = 0;
-
-        // Find nearest zombie
-        let nearestZombie: ZombieData | null = null;
-        let nearestDist = Infinity;
-        this.zombies.forEach(z => {
-          const dist = soldier.position.distanceTo(z.mesh.position);
-          if (dist < nearestDist) {
-            nearestDist = dist;
-            nearestZombie = z;
-          }
-        });
-
-        if (nearestZombie && nearestDist < 40) {
-          const from = soldier.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-          const to = (nearestZombie as ZombieData).mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
-          this.createBullet(from, to, WEAPON_STATS[this.state.weapon].damage * 0.5, false);
-          this.createMuzzleFlash(from.add(new THREE.Vector3(0, 0, -0.5)));
-
-          // Damage
-          this.damageZombie(nearestZombie, WEAPON_STATS[this.state.weapon].damage * 0.5);
-        }
-      }
-
-      // Soldier bob animation
       soldier.position.y = Math.sin(elapsed * 2 + i) * 0.02;
     });
 
