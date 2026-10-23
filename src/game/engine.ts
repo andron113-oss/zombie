@@ -711,16 +711,26 @@ export class GameEngine {
         const size = box.getSize(new THREE.Vector3());
         
         console.log(`📏 ${modelName} model bounds:`, {
-          center: center.toArray().map(v => v.toFixed(2)),
-          size: size.toArray().map(v => v.toFixed(2)),
-          min: box.min.toArray().map(v => v.toFixed(2)),
-          max: box.max.toArray().map(v => v.toFixed(2))
+          center: `[${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}]`,
+          size: `[${size.x.toFixed(2)}, ${size.y.toFixed(2)}, ${size.z.toFixed(2)}]`,
+          min: `[${box.min.x.toFixed(2)}, ${box.min.y.toFixed(2)}, ${box.min.z.toFixed(2)}]`,
+          max: `[${box.max.x.toFixed(2)}, ${box.max.y.toFixed(2)}, ${box.max.z.toFixed(2)}]`
         });
         
+        // CRITICAL: Mixamo models are often in centimeters (100x too large)
+        // Check if model is too big and scale it down
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        const targetHeight = 1.8; // Target height in meters
+        if (maxDimension > 10) {
+          console.log(`⚠️ Model ${modelName} is too large (${maxDimension.toFixed(2)}), scaling down`);
+          const scaleFactor = targetHeight / maxDimension;
+          model.scale.multiplyScalar(scaleFactor);
+        }
+        
         // Offset model so its center is at origin and feet are at y=0
-        model.position.x = -center.x;
-        model.position.y = -box.min.y; // Put feet on ground
-        model.position.z = -center.z;
+        model.position.x = -center.x * model.scale.x;
+        model.position.y = -box.min.y * model.scale.y; // Put feet on ground
+        model.position.z = -center.z * model.scale.z;
         
         // Scale based on type
         const scales: Record<string, number> = {
@@ -744,32 +754,35 @@ export class GameEngine {
           }
         });
         
-        // Add animation
-        const animations = this.animationCache.get(modelName);
-        if (animations && animations.length > 0) {
-          const mixer = new THREE.AnimationMixer(model);
-          
-          // Find appropriate animation
-          let animationClip: THREE.AnimationClip;
-          if (isZombie) {
-            // Try to find walk/run for zombies
-            animationClip = animations.find(anim => 
-              anim.name.toLowerCase().includes('walk') || 
-              anim.name.toLowerCase().includes('run')
-            ) || animations[0];
-          } else {
-            // Try to find idle for soldiers
-            animationClip = animations.find(anim => 
-              anim.name.toLowerCase().includes('idle')
-            ) || animations[0];
-          }
-          
-          const action = mixer.clipAction(animationClip);
-          action.play();
-          this.animationMixers.push(mixer);
-          console.log(`🎬 Added animation for ${modelName}: ${animationClip.name}`);
-        }
-        
+          // Add animation
+          const animations = this.animationCache.get(modelName);
+          if (animations && animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(model);
+            
+            // Find appropriate animation
+            let animationClip: THREE.AnimationClip;
+            if (isZombie) {
+              // Try to find walk/run for zombies
+              animationClip = animations.find(anim => 
+                anim.name.toLowerCase().includes('walk') || 
+                anim.name.toLowerCase().includes('run')
+              ) || animations[0];
+            } else {
+              // Try to find idle for soldiers
+              animationClip = animations.find(anim => 
+                anim.name.toLowerCase().includes('idle')
+              ) || animations[0];
+            }
+            
+            const action = mixer.clipAction(animationClip);
+            action.play();
+            this.animationMixers.push(mixer);
+            console.log(`🎬 Added animation for ${modelName}: ${animationClip.name}`);
+            
+            // Store animation info for movement
+            model.userData.animationName = animationClip.name;
+            model.userData.isInPlaceAnimation = animationClip.name.toLowerCase().includes('inplace');
+          }        
         // Add type-specific visual effects for zombies
         if (isZombie) {
           if (zombieType === 'exploder') {
@@ -1816,6 +1829,32 @@ export class GameEngine {
     this.zombiesInWave = 5 + this.state.wave * 3;
     this.zombiesSpawned = 0;
     this.waveTimer = 0;
+    
+    // DEBUG: Spawn a test zombie right in front of camera to verify models are visible
+    if (this.state.wave === 1 && this.zombiesSpawned === 0) {
+      console.log('🔍 Spawning TEST zombie in front of camera...');
+      const testMesh = this.createCharacterModel(true, 'normal');
+      testMesh.position.set(0, 0, -10); // 10 units in front of camera
+      console.log('🔍 Test zombie position:', testMesh.position);
+      console.log('🔍 Test zombie scale:', testMesh.scale);
+      console.log('🔍 Test zombie rotation:', testMesh.rotation);
+      this.scene.add(testMesh);
+      
+      // Add animation
+      const animations = this.animationCache.get('zombie');
+      if (animations && animations.length > 0) {
+        const mixer = new THREE.AnimationMixer(testMesh);
+        const action = mixer.clipAction(animations[0]);
+        action.play();
+        this.animationMixers.push(mixer);
+      }
+      
+      // Remove after 5 seconds
+      setTimeout(() => {
+        console.log('🔍 Removing test zombie');
+        this.scene.remove(testMesh);
+      }, 5000);
+    }
   }
 
   private createHealthBar(): THREE.Group {
@@ -1854,8 +1893,11 @@ export class GameEngine {
       x: lane.toFixed(2),
       y: 0,
       z: spawnZ.toFixed(2),
-      meshPosition: mesh.position.toArray().map(v => v.toFixed(2)),
-      children: mesh.children.length
+      meshPosition: `[${mesh.position.x.toFixed(2)}, ${mesh.position.y.toFixed(2)}, ${mesh.position.z.toFixed(2)}]`,
+      meshRotation: `[${mesh.rotation.x.toFixed(2)}, ${mesh.rotation.y.toFixed(2)}, ${mesh.rotation.z.toFixed(2)}]`,
+      meshScale: `[${mesh.scale.x.toFixed(2)}, ${mesh.scale.y.toFixed(2)}, ${mesh.scale.z.toFixed(2)}]`,
+      children: mesh.children.length,
+      visible: mesh.visible
     });
     
     // Add health bar
@@ -2028,6 +2070,12 @@ export class GameEngine {
       const oldZ = zombie.mesh.position.z;
       zombie.mesh.position.z += zombie.speed * delta;
 
+      // If animation is "in place", add visual bobbing to simulate movement
+      if (zombie.mesh.userData.isInPlaceAnimation) {
+        // Add subtle forward lean to simulate walking
+        zombie.mesh.rotation.x = Math.sin(zombie.animTime * 5) * 0.05;
+      }
+
       // Debug: log first zombie position every 60 frames
       debugCounter++;
       if (debugCounter === 1 && Math.random() < 0.02) {
@@ -2036,7 +2084,8 @@ export class GameEngine {
           oldZ: oldZ.toFixed(2),
           newZ: zombie.mesh.position.z.toFixed(2),
           speed: zombie.speed.toFixed(2),
-          meshChildren: zombie.mesh.children.length
+          meshChildren: zombie.mesh.children.length,
+          worldPosition: zombie.mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => v.toFixed(2))
         });
       }
 
