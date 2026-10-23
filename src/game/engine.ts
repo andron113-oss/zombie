@@ -92,6 +92,8 @@ export class GameEngine {
   // Model loading
   private gltfLoader!: GLTFLoader;
   private modelCache: Map<string, THREE.Group> = new Map();
+  private animationCache: Map<string, THREE.AnimationClip[]> = new Map();
+  private animationMixers: THREE.AnimationMixer[] = [];
   private modelsLoaded = false;
   private onModelsLoaded: (() => void) | null = null;
   private onProgress: ((message: string) => void) | null = null;
@@ -184,6 +186,7 @@ export class GameEngine {
               url,
               (gltf) => {
                 const model = gltf.scene;
+                const animations = gltf.animations;
                 console.log(`✅ Successfully loaded ${name}, processing...`);
                 
                 // Log model info
@@ -199,7 +202,13 @@ export class GameEngine {
                     child.receiveShadow = true;
                   }
                 });
-                console.log(`📊 Model ${name}: ${meshCount} meshes, ${vertexCount} vertices`);
+                console.log(`📊 Model ${name}: ${meshCount} meshes, ${vertexCount} vertices, ${animations.length} animations`);
+                
+                // Save animations
+                if (animations.length > 0) {
+                  this.animationCache.set(name, animations);
+                  console.log(`🎬 Saved ${animations.length} animations for ${name}`);
+                }
                 
                 resolve(model);
               },
@@ -706,6 +715,28 @@ export class GameEngine {
             }
           });
           
+          // Add animation
+          const animations = this.animationCache.get('zombie');
+          if (animations && animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(clone);
+            // Try to find a walk/run animation
+            let animationClip = animations.find(anim => 
+              anim.name.toLowerCase().includes('walk') || 
+              anim.name.toLowerCase().includes('run')
+            );
+            // If no walk animation, use the first one
+            if (!animationClip) {
+              animationClip = animations[0];
+            }
+            const action = mixer.clipAction(animationClip);
+            action.play();
+            this.animationMixers.push(mixer);
+            console.log(`🎬 Added animation for zombie: ${animationClip.name}`);
+          }
+          
+          // Add clone to group
+          group.add(clone);
+          
           // Add type-specific visual effects (scaled appropriately)
           if (zombieType === 'exploder') {
             const glowGeo = new THREE.SphereGeometry(0.8, 12, 12);
@@ -793,6 +824,25 @@ export class GameEngine {
               child.receiveShadow = true;
             }
           });
+          
+          // Add animation
+          const animations = this.animationCache.get('soldier');
+          if (animations && animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(clone);
+            // Try to find an idle animation
+            let animationClip = animations.find(anim => 
+              anim.name.toLowerCase().includes('idle')
+            );
+            // If no idle animation, use the first one
+            if (!animationClip) {
+              animationClip = animations[0];
+            }
+            const action = mixer.clipAction(animationClip);
+            action.play();
+            this.animationMixers.push(mixer);
+            console.log(`🎬 Added animation for soldier: ${animationClip.name}`);
+          }
+          
           group.add(clone);
           return group;
         }
@@ -1912,6 +1962,11 @@ export class GameEngine {
     
     const delta = Math.min(this.clock.getDelta(), 0.05);
     const elapsed = this.clock.getElapsedTime();
+    
+    // Update all animation mixers
+    this.animationMixers.forEach(mixer => {
+      mixer.update(delta);
+    });
 
     if (this.state.gameOver || this.state.paused) {
       try { this.composer.render(); } catch (_e) {}
