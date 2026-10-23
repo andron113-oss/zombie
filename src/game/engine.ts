@@ -846,29 +846,48 @@ export class GameEngine {
         if (animations && animations.length > 0) {
           const mixer = new THREE.AnimationMixer(model);
           
-          // Find appropriate animation
-          let animationClip: THREE.AnimationClip;
+          // Find appropriate animation with better matching
+          let animationClip: THREE.AnimationClip | undefined;
+          
           if (isZombie) {
-            // Try to find walk/run for zombies
-            animationClip = animations.find(anim => 
-              anim.name.toLowerCase().includes('walk') || 
-              anim.name.toLowerCase().includes('run')
-            ) || animations[0];
+            // Try to find walk/run for zombies (multiple name variations)
+            const walkKeywords = ['walk', 'run', 'move', 'zombie'];
+            animationClip = animations.find(anim => {
+              const name = anim.name.toLowerCase();
+              return walkKeywords.some(keyword => name.includes(keyword));
+            });
+            
+            // If not found, try any animation
+            if (!animationClip) {
+              animationClip = animations[0];
+              console.warn(`⚠️ No walk animation found for zombie, using: ${animationClip.name}`);
+            }
           } else {
             // Try to find idle for soldiers
-            animationClip = animations.find(anim => 
-              anim.name.toLowerCase().includes('idle')
-            ) || animations[0];
+            const idleKeywords = ['idle', 'stand', 'breathing', 'soldier'];
+            animationClip = animations.find(anim => {
+              const name = anim.name.toLowerCase();
+              return idleKeywords.some(keyword => name.includes(keyword));
+            });
+            
+            // If not found, try any animation
+            if (!animationClip) {
+              animationClip = animations[0];
+              console.warn(`⚠️ No idle animation found for soldier, using: ${animationClip.name}`);
+            }
           }
           
           const action = mixer.clipAction(animationClip);
           action.play();
           this.animationMixers.push(mixer);
-          console.log(`🎬 Added animation for ${modelName}: ${animationClip.name}`);
+          console.log(`🎬 Added animation for ${modelName}: ${animationClip.name} (total animations: ${animations.length})`);
           
           // Store animation info for movement
           model.userData.animationName = animationClip.name;
           model.userData.isInPlaceAnimation = animationClip.name.toLowerCase().includes('inplace');
+          model.userData.animationMixer = mixer; // Store reference for cleanup
+        } else {
+          console.warn(`⚠️ No animations found for ${modelName}`);
         }
         
         // Return the model directly - it will be positioned and moved by the game logic
@@ -1777,6 +1796,33 @@ export class GameEngine {
 
   private killZombie(zombie: ZombieData) {
     if (!zombie.mesh) return; // Already removed
+    
+    // CRITICAL: Remove animation mixer for this zombie
+    // Use stored reference in userData for reliable cleanup
+    const storedMixer = zombie.mesh.userData.animationMixer as THREE.AnimationMixer | undefined;
+    if (storedMixer) {
+      const mixerIndex = this.animationMixers.indexOf(storedMixer);
+      if (mixerIndex !== -1) {
+        this.animationMixers.splice(mixerIndex, 1);
+        console.log(`🗑️ Removed animation mixer for zombie`);
+      }
+    } else {
+      // Fallback: try to find mixer by checking root object
+      const mixerIndex = this.animationMixers.findIndex(m => {
+        try {
+          const mixerRoot = (m as any)._root;
+          return mixerRoot === zombie.mesh;
+        } catch (e) {
+          return false;
+        }
+      });
+      
+      if (mixerIndex !== -1) {
+        this.animationMixers.splice(mixerIndex, 1);
+        console.log(`🗑️ Removed animation mixer for zombie (fallback)`);
+      }
+    }
+    
     soundSystem.zombieDeath();
     this.state.score++;
 
