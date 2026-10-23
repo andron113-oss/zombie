@@ -98,16 +98,16 @@ export class GameEngine {
   // Model URLs (from reliable sources)
   private readonly MODEL_URLS = {
     zombie: [
-      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
       'https://threejs.org/examples/models/gltf/Soldier.glb',
+      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
     ],
     soldier: [
-      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
       'https://threejs.org/examples/models/gltf/Soldier.glb',
+      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
     ],
     swat: [
-      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
       'https://threejs.org/examples/models/gltf/Soldier.glb',
+      'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb',
     ],
   };
 
@@ -163,14 +163,18 @@ export class GameEngine {
   }
 
   private async loadModels(): Promise<void> {
+    console.log('Starting model loading...');
+    
     const loadModelWithFallback = async (urls: string[], name: string): Promise<THREE.Group | null> => {
       for (const url of urls) {
         try {
+          console.log(`Attempting to load ${name} from ${url}`);
           const model = await new Promise<THREE.Group>((resolve, reject) => {
             this.gltfLoader.load(
               url,
               (gltf) => {
                 const model = gltf.scene;
+                console.log(`Successfully loaded ${name}, processing...`);
                 // Enable shadows
                 model.traverse((child) => {
                   if (child instanceof THREE.Mesh) {
@@ -180,20 +184,27 @@ export class GameEngine {
                 });
                 resolve(model);
               },
-              undefined,
+              (progress) => {
+                // Progress callback
+                if (progress.total > 0) {
+                  const percent = (progress.loaded / progress.total) * 100;
+                  console.log(`Loading ${name}: ${percent.toFixed(1)}%`);
+                }
+              },
               (error) => {
+                console.error(`Error loading ${name} from ${url}:`, error);
                 reject(error);
               }
             );
           });
           this.modelCache.set(name, model);
-          console.log(`Loaded model ${name} from ${url}`);
+          console.log(`✓ Loaded model ${name} from ${url}`);
           return model;
         } catch (error) {
-          console.warn(`Failed to load ${name} from ${url}, trying next...`);
+          console.warn(`✗ Failed to load ${name} from ${url}, trying next...`);
         }
       }
-      console.warn(`All URLs failed for ${name}, will use procedural fallback`);
+      console.warn(`⚠ All URLs failed for ${name}, will use procedural fallback`);
       return null;
     };
 
@@ -207,12 +218,12 @@ export class GameEngine {
       // Check if at least one model loaded
       this.modelsLoaded = this.modelCache.size > 0;
       if (this.modelsLoaded) {
-        console.log(`Loaded ${this.modelCache.size} models successfully`);
+        console.log(`✓ Loaded ${this.modelCache.size} models successfully`);
       } else {
-        console.warn('No models loaded, using procedural fallback for all');
+        console.warn('⚠ No models loaded, using procedural fallback for all');
       }
     } catch (error) {
-      console.warn('Model loading failed, using fallback procedural models');
+      console.warn('⚠ Model loading failed, using fallback procedural models');
       this.modelsLoaded = false;
     }
     
@@ -224,14 +235,14 @@ export class GameEngine {
 
   private initRenderer(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: false, // Disabled for performance
       alpha: false,
       powerPreference: 'high-performance',
     });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Reduced from 2
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.BasicShadowMap; // Faster than PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.8;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -247,50 +258,21 @@ export class GameEngine {
   }
 
   private initPostProcessing(container: HTMLElement) {
-    // Post-processing - must be called AFTER initScene (scene & camera must exist)
+    // Simplified post-processing for better performance
     this.composer = new EffectComposer(this.renderer);
     const renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(renderPass);
 
+    // Reduced bloom for performance
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(container.clientWidth, container.clientHeight),
-      0.8, // strength
-      0.5, // radius
-      0.7 // threshold
+      0.4, // strength (reduced)
+      0.3, // radius (reduced)
+      0.85 // threshold (increased)
     );
     this.composer.addPass(bloomPass);
 
-    // Vignette + color grading shader
-    const vignetteShader = {
-      uniforms: {
-        tDiffuse: { value: null },
-        darkness: { value: 0.6 },
-        offset: { value: 1.2 },
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D tDiffuse;
-        uniform float darkness;
-        uniform float offset;
-        varying vec2 vUv;
-        void main() {
-          vec4 texel = texture2D(tDiffuse, vUv);
-          vec2 uv = (vUv - vec2(0.5)) * vec2(offset);
-          texel.rgb *= 1.0 - dot(uv, uv) * darkness;
-          // Color grading - slight blue tint in shadows, warm highlights
-          texel.rgb = pow(texel.rgb, vec3(0.95, 1.0, 1.05));
-          gl_FragColor = texel;
-        }
-      `,
-    };
-    const vignettePass = new ShaderPass(vignetteShader);
-    this.composer.addPass(vignettePass);
+    // Removed vignette shader for better performance
   }
 
   private initScene() {
@@ -353,19 +335,19 @@ export class GameEngine {
     road.receiveShadow = true;
     this.scene.add(road);
 
-    // Road markings
-    for (let i = 0; i < 30; i++) {
+    // Road markings (reduced for performance)
+    for (let i = 0; i < 15; i++) {
       const markGeo = new THREE.PlaneGeometry(0.2, 2);
       const markMat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x444400 });
       const mark = new THREE.Mesh(markGeo, markMat);
       mark.rotation.x = -Math.PI / 2;
-      mark.position.set(0, 0.01, -i * 4 + 10);
+      mark.position.set(0, 0.01, -i * 8 + 10);
       this.scene.add(mark);
     }
 
-    // Road edges / barriers
+    // Road edges / barriers (reduced for performance)
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 10; i++) {
         const barrierGeo = new THREE.BoxGeometry(0.3, 0.8, 3);
         const barrierMat = new THREE.MeshStandardMaterial({
           color: 0x888888,
@@ -373,15 +355,15 @@ export class GameEngine {
           metalness: 0.3,
         });
         const barrier = new THREE.Mesh(barrierGeo, barrierMat);
-        barrier.position.set(side * 6.2, 0.4, -i * 6 + 10);
-        barrier.castShadow = true;
+        barrier.position.set(side * 6.2, 0.4, -i * 12 + 10);
+        barrier.castShadow = false; // Disable shadows for performance
         barrier.receiveShadow = true;
         this.scene.add(barrier);
       }
     }
 
-    // Water on both sides
-    const waterGeo = new THREE.PlaneGeometry(40, 120, 64, 64);
+    // Water on both sides (simplified for performance)
+    const waterGeo = new THREE.PlaneGeometry(40, 120, 32, 32); // Reduced from 64x64
     const waterMat = new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
@@ -431,14 +413,14 @@ export class GameEngine {
     water2.position.set(26, -0.5, -40);
     this.scene.add(water2);
 
-    // Street lights
-    for (let i = 0; i < 8; i++) {
+    // Street lights (reduced for performance)
+    for (let i = 0; i < 4; i++) {
       for (let side = -1; side <= 1; side += 2) {
         const poleGeo = new THREE.CylinderGeometry(0.05, 0.08, 5);
         const poleMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8 });
         const pole = new THREE.Mesh(poleGeo, poleMat);
-        pole.position.set(side * 7, 2.5, -i * 15 + 5);
-        pole.castShadow = true;
+        pole.position.set(side * 7, 2.5, -i * 30 + 5);
+        pole.castShadow = false; // Disable shadows for performance
         this.scene.add(pole);
 
         const lightGeo = new THREE.SphereGeometry(0.2);
@@ -448,10 +430,10 @@ export class GameEngine {
           emissiveIntensity: 2,
         });
         const lightMesh = new THREE.Mesh(lightGeo, lightMat);
-        lightMesh.position.set(side * 7, 5, -i * 15 + 5);
+        lightMesh.position.set(side * 7, 5, -i * 30 + 5);
         this.scene.add(lightMesh);
 
-        const pointLight = new THREE.PointLight(0xffaa44, 3, 15);
+        const pointLight = new THREE.PointLight(0xffaa44, 2, 12); // Reduced intensity and range
         pointLight.position.copy(lightMesh.position);
         this.scene.add(pointLight);
       }
@@ -633,8 +615,8 @@ export class GameEngine {
     this.sunLight = new THREE.DirectionalLight(0xffeedd, 2.5);
     this.sunLight.position.set(-15, 30, 10);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 2048;
-    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.mapSize.width = 1024; // Reduced from 2048 for performance
+    this.sunLight.shadow.mapSize.height = 1024; // Reduced from 2048 for performance
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 100;
     this.sunLight.shadow.camera.left = -40;
@@ -1555,8 +1537,9 @@ export class GameEngine {
 
   private createBloodEffect(position: THREE.Vector3) {
     if (!position || isNaN(position.x)) return; // Safety check
-    for (let i = 0; i < 5; i++) {
-      const geo = new THREE.SphereGeometry(0.05 + Math.random() * 0.05, 6, 6);
+    // Reduced particles for performance (3 instead of 5)
+    for (let i = 0; i < 3; i++) {
+      const geo = new THREE.SphereGeometry(0.05, 4, 4); // Lower poly count
       const mat = new THREE.MeshBasicMaterial({ color: 0x880000 });
       const particle = new THREE.Mesh(geo, mat);
       particle.position.copy(position);
@@ -1565,12 +1548,12 @@ export class GameEngine {
       this.particles.push({
         mesh: particle,
         velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 3,
-          Math.random() * 3,
-          (Math.random() - 0.5) * 3
+          (Math.random() - 0.5) * 2,
+          Math.random() * 2,
+          (Math.random() - 0.5) * 2
         ),
-        life: 0.5 + Math.random() * 0.5,
-        maxLife: 1,
+        life: 0.3 + Math.random() * 0.2, // Shorter life
+        maxLife: 0.5,
         type: 'blood',
       });
     }
@@ -1600,8 +1583,9 @@ export class GameEngine {
 
   private createExplosionEffect(position: THREE.Vector3) {
     if (!position || isNaN(position.x)) return; // Safety check
-    for (let i = 0; i < 15; i++) {
-      const geo = new THREE.SphereGeometry(0.1 + Math.random() * 0.15, 6, 6);
+    // Reduced particles for performance (8 instead of 15)
+    for (let i = 0; i < 8; i++) {
+      const geo = new THREE.SphereGeometry(0.1, 4, 4); // Lower poly
       const mat = new THREE.MeshBasicMaterial({
         color: Math.random() > 0.5 ? 0xff4400 : 0xffaa00,
         transparent: true,
@@ -1614,25 +1598,25 @@ export class GameEngine {
       this.particles.push({
         mesh: particle,
         velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 5,
-          Math.random() * 5 + 2,
-          (Math.random() - 0.5) * 5
+          (Math.random() - 0.5) * 4,
+          Math.random() * 4 + 1,
+          (Math.random() - 0.5) * 4
         ),
-        life: 0.5 + Math.random() * 0.5,
-        maxLife: 1,
+        life: 0.4 + Math.random() * 0.3, // Shorter life
+        maxLife: 0.7,
         type: 'explosion',
       });
     }
 
-    // Explosion light
-    const light = new THREE.PointLight(0xff4400, 10, 15);
+    // Explosion light (reduced intensity)
+    const light = new THREE.PointLight(0xff4400, 5, 10);
     light.position.copy(position);
     this.scene.add(light);
     this.particles.push({
       mesh: new THREE.Mesh(), // dummy
       light,
-      life: 0.3,
-      maxLife: 0.3,
+      life: 0.2,
+      maxLife: 0.2,
       type: 'light',
     });
   }
@@ -2099,7 +2083,17 @@ export class GameEngine {
       }
     });
     
-    // Remove old bullets
+    // Remove old bullets (limit to 30 for performance)
+    if (this.bullets.length > 30) {
+      const excess = this.bullets.splice(0, this.bullets.length - 30);
+      excess.forEach(b => {
+        try {
+          if (b.mesh.parent) this.scene.remove(b.mesh);
+          if (b.trail && b.trail.parent) this.scene.remove(b.trail);
+        } catch (_e) {}
+      });
+    }
+    
     this.bullets = this.bullets.filter(b => {
       const shouldRemove = 
         (b.life !== undefined && b.life <= 0) ||
@@ -2117,7 +2111,17 @@ export class GameEngine {
       return true;
     });
 
-    // Update particles
+    // Update particles (limit to 50 for performance)
+    if (this.particles.length > 50) {
+      const excess = this.particles.splice(0, this.particles.length - 50);
+      excess.forEach(p => {
+        try {
+          if (p.mesh && p.mesh.parent) this.scene.remove(p.mesh);
+          if (p.light && p.light.parent) this.scene.remove(p.light);
+        } catch (_e) {}
+      });
+    }
+    
     this.particles.forEach(p => {
       p.life -= delta;
       if (!p.mesh) return; // Safety
