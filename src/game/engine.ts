@@ -354,6 +354,22 @@ export class GameEngine {
     this.camera.position.set(0, 8, 12);
     this.camera.lookAt(0, 1, -15);
     
+    console.log('📷 Camera setup:', {
+      position: `[${this.camera.position.x.toFixed(2)}, ${this.camera.position.y.toFixed(2)}, ${this.camera.position.z.toFixed(2)}]`,
+      lookAt: '[0, 1, -15]',
+      fov: this.camera.fov,
+      near: this.camera.near,
+      far: this.camera.far
+    });
+    
+    // Add a test cube at the look-at point to verify camera is working
+    const testCubeGeo = new THREE.BoxGeometry(1, 1, 1);
+    const testCubeMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    const testCube = new THREE.Mesh(testCubeGeo, testCubeMat);
+    testCube.position.set(0, 1, -15);
+    this.scene.add(testCube);
+    console.log('🟢 Added GREEN TEST CUBE at look-at point (0, 1, -15)');
+    
     // Add squad group to scene
     this.scene.add(this.squadGroup);
   }
@@ -744,7 +760,14 @@ export class GameEngine {
         model.scale.multiplyScalar(scale);
         
         // Rotate to face correct direction
-        model.rotation.y = Math.PI;
+        // Models from Mixamo face +Z, we need them to face -Z (towards camera)
+        model.rotation.set(0, Math.PI, 0);
+        
+        console.log(`🎯 ${modelName} final transform:`, {
+          position: `[${model.position.x.toFixed(2)}, ${model.position.y.toFixed(2)}, ${model.position.z.toFixed(2)}]`,
+          rotation: `[${model.rotation.x.toFixed(2)}, ${model.rotation.y.toFixed(2)}, ${model.rotation.z.toFixed(2)}]`,
+          scale: `[${model.scale.x.toFixed(2)}, ${model.scale.y.toFixed(2)}, ${model.scale.z.toFixed(2)}]`
+        });
         
         // Enable shadows for all meshes
         model.traverse((child) => {
@@ -1834,10 +1857,33 @@ export class GameEngine {
     if (this.state.wave === 1 && this.zombiesSpawned === 0) {
       console.log('🔍 Spawning TEST zombie in front of camera...');
       const testMesh = this.createCharacterModel(true, 'normal');
-      testMesh.position.set(0, 0, -10); // 10 units in front of camera
+      testMesh.position.set(0, 0, -5); // 5 units in front of camera (closer!)
+      
+      // Make it MUCH brighter for testing
+      testMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.material instanceof THREE.MeshStandardMaterial) {
+            child.material.emissive = new THREE.Color(0x444444);
+            child.material.emissiveIntensity = 1.0;
+          }
+          // Ensure it's visible
+          child.visible = true;
+        }
+      });
+      
+      // Add a point light on the test zombie
+      const testLight = new THREE.PointLight(0xffff00, 2, 10);
+      testLight.position.copy(testMesh.position);
+      testLight.position.y = 3;
+      this.scene.add(testLight);
+      console.log('🔍 Added YELLOW LIGHT on test zombie');
+      
       console.log('🔍 Test zombie position:', testMesh.position);
       console.log('🔍 Test zombie scale:', testMesh.scale);
       console.log('🔍 Test zombie rotation:', testMesh.rotation);
+      console.log('🔍 Test zombie visible:', testMesh.visible);
+      console.log('🔍 Test zombie children:', testMesh.children.length);
+      
       this.scene.add(testMesh);
       
       // Add animation
@@ -1849,11 +1895,31 @@ export class GameEngine {
         this.animationMixers.push(mixer);
       }
       
-      // Remove after 5 seconds
+      // Log world position after adding to scene
+      const worldPos = new THREE.Vector3();
+      testMesh.getWorldPosition(worldPos);
+      console.log('🔍 Test zombie WORLD position:', worldPos);
+      
+      // Add a bright marker at zombie position to verify location
+      const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
+      const markerMat = new THREE.MeshBasicMaterial({ 
+        color: 0xff0000,
+        transparent: true,
+        opacity: 0.8
+      });
+      const marker = new THREE.Mesh(markerGeo, markerMat);
+      marker.position.copy(testMesh.position);
+      marker.position.y = 2; // Above the zombie
+      this.scene.add(marker);
+      console.log('🔍 Added RED MARKER at position:', marker.position);
+      
+      // Remove after 10 seconds
       setTimeout(() => {
-        console.log('🔍 Removing test zombie');
+        console.log('🔍 Removing test zombie, marker, and light');
         this.scene.remove(testMesh);
-      }, 5000);
+        this.scene.remove(marker);
+        this.scene.remove(testLight);
+      }, 10000);
     }
   }
 
