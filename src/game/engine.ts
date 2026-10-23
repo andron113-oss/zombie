@@ -112,6 +112,7 @@ export class GameEngine {
 
     this.initRenderer(container);
     this.initScene();
+    this.initPostProcessing(container); // Must be AFTER initScene (needs scene & camera)
     this.initEnvironment();
     this.initLighting();
     this.initSquad();
@@ -136,7 +137,17 @@ export class GameEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
-    // Post-processing
+    window.addEventListener('resize', () => {
+      if (!this.camera || !this.renderer || !this.composer) return;
+      this.camera.aspect = container.clientWidth / container.clientHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(container.clientWidth, container.clientHeight);
+      this.composer.setSize(container.clientWidth, container.clientHeight);
+    });
+  }
+
+  private initPostProcessing(container: HTMLElement) {
+    // Post-processing - must be called AFTER initScene (scene & camera must exist)
     this.composer = new EffectComposer(this.renderer);
     const renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(renderPass);
@@ -149,7 +160,7 @@ export class GameEngine {
     );
     this.composer.addPass(bloomPass);
 
-    // Vignette shader
+    // Vignette + color grading shader
     const vignetteShader = {
       uniforms: {
         tDiffuse: { value: null },
@@ -180,13 +191,6 @@ export class GameEngine {
     };
     const vignettePass = new ShaderPass(vignetteShader);
     this.composer.addPass(vignettePass);
-
-    window.addEventListener('resize', () => {
-      this.camera.aspect = container.clientWidth / container.clientHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(container.clientWidth, container.clientHeight);
-      this.composer.setSize(container.clientWidth, container.clientHeight);
-    });
   }
 
   private initScene() {
@@ -776,7 +780,15 @@ export class GameEngine {
       const blockMeshes = this.bonusBlocks.map(b => b.mesh);
       const blockHits = this.raycaster.intersectObjects(blockMeshes, true);
       if (blockHits.length > 0) {
-        const hitBlock = this.bonusBlocks.find(b => b.mesh === blockHits[0].object || b.mesh === blockHits[0].object.parent);
+        const hitObj = blockHits[0].object;
+        const hitBlock = this.bonusBlocks.find(b => {
+          let obj: THREE.Object3D | null = hitObj;
+          while (obj) {
+            if (obj === b.mesh) return true;
+            obj = obj.parent;
+          }
+          return false;
+        });
         if (hitBlock) {
           this.collectBonus(hitBlock);
           return;
@@ -787,8 +799,9 @@ export class GameEngine {
       const zombieMeshes = this.zombies.map(z => z.mesh);
       const zombieHits = this.raycaster.intersectObjects(zombieMeshes, true);
       if (zombieHits.length > 0) {
+        const hitObj = zombieHits[0].object;
         const hitZombie = this.zombies.find(z => {
-          let obj: THREE.Object3D | null = zombieHits[0].object;
+          let obj: THREE.Object3D | null = hitObj;
           while (obj) {
             if (obj === z.mesh) return true;
             obj = obj.parent;
@@ -820,18 +833,21 @@ export class GameEngine {
     });
 
     container.addEventListener('mousemove', (e) => {
+      if (!this.camera || !this.raycaster) return; // Safety
       const rect = container.getBoundingClientRect();
       this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      this.raycaster.setFromCamera(this.mouse, this.camera);
-      const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-      const intersection = new THREE.Vector3();
-      this.raycaster.ray.intersectPlane(groundPlane, intersection);
-      if (intersection) {
-        this.crosshairTarget.lerp(intersection, 0.3);
-        this.crosshairTarget.y = 0.1;
-      }
+      try {
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const intersection = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(groundPlane, intersection);
+        if (intersection && !isNaN(intersection.x)) {
+          this.crosshairTarget.lerp(intersection, 0.3);
+          this.crosshairTarget.y = 0.1;
+        }
+      } catch (_e) { /* ignore raycast errors */ }
     });
   }
 
@@ -842,6 +858,11 @@ export class GameEngine {
 
     if (now - this.lastFireTime < fireRate) return;
     this.lastFireTime = now;
+
+    // Validate target still exists
+    if (targetZombie && (!targetZombie.mesh || !targetZombie.mesh.parent)) {
+      targetZombie = null;
+    }
 
     // Camera shake
     this.cameraShake = 0.1;
@@ -868,8 +889,10 @@ export class GameEngine {
   }
 
   private createBullet(from: THREE.Vector3, to: THREE.Vector3, damage: number, isPlayer: boolean) {
+    if (!from || !to || isNaN(from.x) || isNaN(to.x)) return; // Safety check
     const direction = to.clone().sub(from).normalize();
     const distance = from.distanceTo(to);
+    if (distance < 0.01 || isNaN(distance)) return; // Invalid direction
 
     const bulletGeo = new THREE.SphereGeometry(0.05, 6, 6);
     const bulletMat = new THREE.MeshBasicMaterial({
@@ -899,6 +922,7 @@ export class GameEngine {
   }
 
   private createMuzzleFlash(position: THREE.Vector3) {
+    if (!position || isNaN(position.x)) return; // Safety check
     const flashGeo = new THREE.SphereGeometry(0.2, 8, 8);
     const flashMat = new THREE.MeshBasicMaterial({
       color: 0xffaa00,
@@ -924,6 +948,7 @@ export class GameEngine {
   }
 
   private createBloodEffect(position: THREE.Vector3) {
+    if (!position || isNaN(position.x)) return; // Safety check
     for (let i = 0; i < 5; i++) {
       const geo = new THREE.SphereGeometry(0.05 + Math.random() * 0.05, 6, 6);
       const mat = new THREE.MeshBasicMaterial({ color: 0x880000 });
@@ -968,6 +993,7 @@ export class GameEngine {
   }
 
   private createExplosionEffect(position: THREE.Vector3) {
+    if (!position || isNaN(position.x)) return; // Safety check
     for (let i = 0; i < 15; i++) {
       const geo = new THREE.SphereGeometry(0.1 + Math.random() * 0.15, 6, 6);
       const mat = new THREE.MeshBasicMaterial({
@@ -1007,23 +1033,29 @@ export class GameEngine {
 
   private damageZombie(zombie: ZombieData, damage: number) {
     zombie.health -= damage;
+    if (!zombie.mesh || !zombie.mesh.parent) return; // Already removed
     this.createBloodEffect(zombie.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)));
     soundSystem.zombieHit();
 
     // Hit flash effect - make zombie flash white briefly
+    // Store refs to safely restore after timeout (zombie might be killed)
+    const flashTargets: { material: THREE.MeshStandardMaterial; originalEmissive: THREE.Color }[] = [];
     zombie.mesh.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
         const originalEmissive = child.material.emissive.clone();
         child.material.emissive.setHex(0xffffff);
         child.material.emissiveIntensity = 2;
-        setTimeout(() => {
-          if (child.material instanceof THREE.MeshStandardMaterial) {
-            child.material.emissive.copy(originalEmissive);
-            child.material.emissiveIntensity = 0;
-          }
-        }, 80);
+        flashTargets.push({ material: child.material, originalEmissive });
       }
     });
+    setTimeout(() => {
+      flashTargets.forEach(({ material, originalEmissive }) => {
+        try {
+          material.emissive.copy(originalEmissive);
+          material.emissiveIntensity = 0;
+        } catch (_e) { /* material may be disposed */ }
+      });
+    }, 80);
 
     // Update health bar
     const healthBar = zombie.mesh.children.find(c => c instanceof THREE.Group) as THREE.Group | undefined;
@@ -1049,30 +1081,37 @@ export class GameEngine {
   }
 
   private killZombie(zombie: ZombieData) {
+    if (!zombie.mesh) return; // Already removed
     soundSystem.zombieDeath();
     this.state.score++;
+
+    const zombiePos = zombie.mesh.position.clone();
 
     // Explosion for exploder type
     if (zombie.type === 'exploder') {
       soundSystem.explosion();
-      this.createExplosionEffect(zombie.mesh.position.clone());
+      this.createExplosionEffect(zombiePos);
       // Damage nearby squad members
       this.squadMembers.forEach(s => {
-        if (s.position.distanceTo(zombie.mesh.position) < 3) {
+        if (s && s.position.distanceTo(zombiePos) < 3) {
           this.state.health -= 5;
         }
       });
     }
 
     // Death effect
-    this.createBloodEffect(zombie.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)));
+    this.createBloodEffect(zombiePos.add(new THREE.Vector3(0, 1, 0)));
 
-    this.scene.remove(zombie.mesh);
+    // Safe removal
+    if (zombie.mesh.parent) {
+      this.scene.remove(zombie.mesh);
+    }
     this.zombies = this.zombies.filter(z => z !== zombie);
     this.notifyState();
   }
 
   private collectBonus(block: BonusBlockData) {
+    if (!block.mesh || !block.mesh.parent) return; // Already collected/removed
     soundSystem.collectBonus();
     const type = block.type;
 
@@ -1249,11 +1288,15 @@ export class GameEngine {
 
   private animate = () => {
     this.animationId = requestAnimationFrame(this.animate);
+    
+    // Safety check - ensure everything is initialized
+    if (!this.scene || !this.camera || !this.renderer || !this.composer) return;
+    
     const delta = Math.min(this.clock.getDelta(), 0.05);
     const elapsed = this.clock.getElapsedTime();
 
     if (this.state.gameOver || this.state.paused) {
-      this.composer.render();
+      try { this.composer.render(); } catch (_e) {}
       return;
     }
 
@@ -1302,6 +1345,7 @@ export class GameEngine {
 
     // Update zombies
     this.zombies.forEach(zombie => {
+      if (!zombie.mesh || !zombie.mesh.parent) return; // Safety check
       zombie.animTime += delta * zombie.speed;
 
       // Move towards squad
@@ -1321,10 +1365,15 @@ export class GameEngine {
             this.state.health -= 5;
             this.cameraShake = 0.2;
           }
-          // Zombie attack animation - lunge forward
-          zombie.mesh.position.z -= 0.3;
+          // Zombie attack animation - lunge forward (safe ref)
+          const attackMesh = zombie.mesh;
+          attackMesh.position.z -= 0.3;
           setTimeout(() => {
-            if (zombie.mesh) zombie.mesh.position.z += 0.3;
+            try {
+              if (attackMesh && attackMesh.parent) {
+                attackMesh.position.z += 0.3;
+              }
+            } catch (_e) { /* object removed */ }
           }, 150);
           this.notifyState();
         }
@@ -1367,12 +1416,14 @@ export class GameEngine {
 
     // Update bonus blocks
     this.bonusBlocks.forEach(block => {
+      if (!block.mesh || !block.mesh.parent) return; // Safety check
       block.mesh.position.z += block.speed * delta;
       block.mesh.rotation.y += delta * 2;
       block.mesh.position.y = 0.75 + Math.sin(elapsed * 3) * 0.2;
     });
     // Remove blocks that passed
     this.bonusBlocks = this.bonusBlocks.filter((b: BonusBlockData) => {
+      if (!b.mesh || !b.mesh.parent) return false; // Already removed
       if (b.mesh.position.z > 15) {
         this.scene.remove(b.mesh);
         return false;
@@ -1382,6 +1433,7 @@ export class GameEngine {
 
     // Update bullets
     this.bullets.forEach(bullet => {
+      if (!bullet.mesh || !bullet.trail) return; // Safety
       const move = bullet.direction.clone().multiplyScalar(bullet.speed * delta);
       bullet.mesh.position.add(move);
       bullet.trail.position.copy(bullet.mesh.position);
@@ -1391,8 +1443,10 @@ export class GameEngine {
     // Remove old bullets
     this.bullets = this.bullets.filter(b => {
       if (b.distance > b.maxDistance || b.mesh.position.z > 20 || b.mesh.position.z < -80) {
-        this.scene.remove(b.mesh);
-        this.scene.remove(b.trail);
+        try {
+          if (b.mesh.parent) this.scene.remove(b.mesh);
+          if (b.trail.parent) this.scene.remove(b.trail);
+        } catch (_e) { /* already removed */ }
         return false;
       }
       return true;
@@ -1401,29 +1455,32 @@ export class GameEngine {
     // Update particles
     this.particles.forEach(p => {
       p.life -= delta;
+      if (!p.mesh) return; // Safety
       if (p.type === 'blood' || p.type === 'explosion') {
-        if (p.velocity) {
+        if (p.velocity && p.mesh.position) {
           p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
           p.velocity.y -= 9.8 * delta;
         }
         if (p.mesh.material instanceof THREE.MeshBasicMaterial) {
-          p.mesh.material.opacity = p.life / p.maxLife;
+          p.mesh.material.opacity = Math.max(0, p.life / p.maxLife);
         }
       } else if (p.type === 'flash') {
-        const scale = p.life / p.maxLife;
-        p.mesh.scale.setScalar(scale * 2);
+        const scale = Math.max(0, p.life / p.maxLife);
+        if (p.mesh.scale) p.mesh.scale.setScalar(scale * 2);
         if (p.mesh.material instanceof THREE.MeshBasicMaterial) {
           p.mesh.material.opacity = scale;
         }
       } else if (p.type === 'light' && p.light) {
-        p.light.intensity = (p.life / p.maxLife) * 10;
+        p.light.intensity = Math.max(0, (p.life / p.maxLife) * 10);
       }
     });
     // Remove dead particles
     this.particles = this.particles.filter(p => {
       if (p.life <= 0) {
-        this.scene.remove(p.mesh);
-        if (p.light) this.scene.remove(p.light);
+        try {
+          if (p.mesh && p.mesh.parent) this.scene.remove(p.mesh);
+          if (p.light && p.light.parent) this.scene.remove(p.light);
+        } catch (_e) { /* already removed */ }
         return false;
       }
       return true;
@@ -1440,7 +1497,8 @@ export class GameEngine {
 
     // Shield visual effect
     if (this.state.shieldActive) {
-      if (!this.scene.getObjectByName('shieldDome')) {
+      let shield = this.scene.getObjectByName('shieldDome') as THREE.Mesh | undefined;
+      if (!shield) {
         const shieldGeo = new THREE.SphereGeometry(5, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
         const shieldMat = new THREE.MeshBasicMaterial({
           color: 0x4488ff,
@@ -1450,19 +1508,19 @@ export class GameEngine {
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         });
-        const shield = new THREE.Mesh(shieldGeo, shieldMat);
+        shield = new THREE.Mesh(shieldGeo, shieldMat);
         shield.name = 'shieldDome';
         shield.position.set(0, 0, 5);
         this.scene.add(shield);
       }
-      const shield = this.scene.getObjectByName('shieldDome') as THREE.Mesh;
-      if (shield) {
+      if (shield && shield.parent) {
         shield.rotation.y += delta * 0.5;
-        (shield.material as THREE.MeshBasicMaterial).opacity = 0.1 + Math.sin(elapsed * 3) * 0.05;
+        const mat = shield.material as THREE.MeshBasicMaterial;
+        if (mat) mat.opacity = 0.1 + Math.sin(elapsed * 3) * 0.05;
       }
     } else {
       const shield = this.scene.getObjectByName('shieldDome');
-      if (shield) this.scene.remove(shield);
+      if (shield && shield.parent) this.scene.remove(shield);
     }
     if (this.state.speedBoost) {
       this.state.speedBoostTimer -= delta;
@@ -1501,7 +1559,7 @@ export class GameEngine {
       this.notifyState();
     }
 
-    this.composer.render();
+    try { this.composer.render(); } catch (_e) { /* render error */ }
   };
 
   private notifyState() {
@@ -1509,11 +1567,29 @@ export class GameEngine {
   }
 
   public restart() {
-    // Clean up
-    this.zombies.forEach(z => this.scene.remove(z.mesh));
-    this.bonusBlocks.forEach(b => this.scene.remove(b.mesh));
-    this.bullets.forEach(b => { this.scene.remove(b.mesh); this.scene.remove(b.trail); });
-    this.particles.forEach(p => { this.scene.remove(p.mesh); if (p.light) this.scene.remove(p.light); });
+    // Safe cleanup
+    this.zombies.forEach(z => {
+      try { if (z.mesh && z.mesh.parent) this.scene.remove(z.mesh); } catch (_e) {}
+    });
+    this.bonusBlocks.forEach(b => {
+      try { if (b.mesh && b.mesh.parent) this.scene.remove(b.mesh); } catch (_e) {}
+    });
+    this.bullets.forEach(b => {
+      try {
+        if (b.mesh && b.mesh.parent) this.scene.remove(b.mesh);
+        if (b.trail && b.trail.parent) this.scene.remove(b.trail);
+      } catch (_e) {}
+    });
+    this.particles.forEach(p => {
+      try {
+        if (p.mesh && p.mesh.parent) this.scene.remove(p.mesh);
+        if (p.light && p.light.parent) this.scene.remove(p.light);
+      } catch (_e) {}
+    });
+
+    // Remove shield if present
+    const shield = this.scene.getObjectByName('shieldDome');
+    if (shield && shield.parent) this.scene.remove(shield);
 
     this.zombies = [];
     this.bonusBlocks = [];
@@ -1544,9 +1620,16 @@ export class GameEngine {
   public destroy() {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
+      this.animationId = null;
     }
-    this.renderer.dispose();
-    this.renderer.domElement.remove();
+    try {
+      if (this.renderer) {
+        this.renderer.dispose();
+        if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+          this.renderer.domElement.remove();
+        }
+      }
+    } catch (_e) { /* ignore cleanup errors */ }
   }
 }
 
