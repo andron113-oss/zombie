@@ -680,64 +680,68 @@ export class GameEngine {
   }
 
   private createCharacterModel(isZombie: boolean, zombieType: string = 'normal'): THREE.Group {
-    const group = new THREE.Group();
-
-    // Try to use loaded models first
+    // Try to use loaded models first - return model directly without wrapper group
     if (this.modelsLoaded) {
-      if (isZombie) {
-        const zombieModel = this.modelCache.get('zombie');
-        if (zombieModel) {
-          const clone = zombieModel.clone();
+      const modelName = isZombie ? 'zombie' : 'soldier';
+      const cachedModel = this.modelCache.get(modelName);
+      
+      if (cachedModel) {
+        // Clone the model directly - this will be the root object that moves
+        const model = cachedModel.clone() as THREE.Group;
+        
+        // Scale based on type
+        const scales: Record<string, number> = {
+          normal: 1.0,
+          fast: 0.9,
+          tank: 1.4,
+          armored: 1.2,
+          exploder: 1.1,
+        };
+        const scale = isZombie ? (scales[zombieType] || 1.0) : 1.0;
+        model.scale.setScalar(scale);
+        
+        // CRITICAL: Reset position to origin - this is the root object that will move
+        model.position.set(0, 0, 0);
+        
+        // Rotate to face correct direction
+        model.rotation.y = Math.PI;
+        
+        // Enable shadows for all meshes
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        
+        // Add animation
+        const animations = this.animationCache.get(modelName);
+        if (animations && animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(model);
           
-          // Scale and adjust based on zombie type (models are ~1.8m tall)
-          const scales: Record<string, number> = {
-            normal: 1.0,
-            fast: 0.9,
-            tank: 1.4,
-            armored: 1.2,
-            exploder: 1.1,
-          };
-          const scale = scales[zombieType] || 1.0;
-          clone.scale.setScalar(scale);
-          
-          // Adjust vertical position (feet on ground)
-          clone.position.y = 0;
-          
-          // Rotate to face player (model faces -Z by default)
-          clone.rotation.y = Math.PI;
-          
-          // Keep original textures - don't change colors
-          // Just enable shadows for all meshes
-          clone.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-            }
-          });
-          
-          // Add animation
-          const animations = this.animationCache.get('zombie');
-          if (animations && animations.length > 0) {
-            const mixer = new THREE.AnimationMixer(clone);
-            // Try to find a walk/run animation
-            let animationClip = animations.find(anim => 
+          // Find appropriate animation
+          let animationClip: THREE.AnimationClip;
+          if (isZombie) {
+            // Try to find walk/run for zombies
+            animationClip = animations.find(anim => 
               anim.name.toLowerCase().includes('walk') || 
               anim.name.toLowerCase().includes('run')
-            );
-            // If no walk animation, use the first one
-            if (!animationClip) {
-              animationClip = animations[0];
-            }
-            const action = mixer.clipAction(animationClip);
-            action.play();
-            this.animationMixers.push(mixer);
-            console.log(`🎬 Added animation for zombie: ${animationClip.name}`);
+            ) || animations[0];
+          } else {
+            // Try to find idle for soldiers
+            animationClip = animations.find(anim => 
+              anim.name.toLowerCase().includes('idle')
+            ) || animations[0];
           }
           
-          // Add clone to group
-          group.add(clone);
-          
-          // Add type-specific visual effects (scaled appropriately)
+          const action = mixer.clipAction(animationClip);
+          action.play();
+          this.animationMixers.push(mixer);
+          console.log(`🎬 Added animation for ${modelName}: ${animationClip.name}`);
+        }
+        
+        // Add type-specific visual effects for zombies
+        if (isZombie) {
           if (zombieType === 'exploder') {
             const glowGeo = new THREE.SphereGeometry(0.8, 12, 12);
             const glowMat = new THREE.MeshStandardMaterial({
@@ -749,44 +753,39 @@ export class GameEngine {
             });
             const glow = new THREE.Mesh(glowGeo, glowMat);
             glow.position.y = 1;
-            clone.add(glow);
+            model.add(glow);
             
-            // Add pulsing light
             const light = new THREE.PointLight(0xff4400, 2, 3);
             light.position.y = 1;
-            clone.add(light);
+            model.add(light);
           }
           
           if (zombieType === 'armored') {
-            // Add armor plates
             const plateMat = new THREE.MeshStandardMaterial({ 
               color: 0x666666, 
               metalness: 0.95, 
               roughness: 0.2 
             });
             
-            // Chest armor
             const chestPlate = new THREE.Mesh(
               new THREE.BoxGeometry(1.2, 1.0, 0.3),
               plateMat
             );
             chestPlate.position.set(0, 1.2, -0.5);
-            clone.add(chestPlate);
+            model.add(chestPlate);
             
-            // Shoulder pads
             const shoulderGeo = new THREE.SphereGeometry(0.4, 8, 6);
             const shoulderL = new THREE.Mesh(shoulderGeo, plateMat);
             shoulderL.position.set(-0.8, 1.5, 0);
             shoulderL.scale.set(1, 0.7, 1);
-            clone.add(shoulderL);
+            model.add(shoulderL);
             const shoulderR = new THREE.Mesh(shoulderGeo, plateMat);
             shoulderR.position.set(0.8, 1.5, 0);
             shoulderR.scale.set(1, 0.7, 1);
-            clone.add(shoulderR);
+            model.add(shoulderR);
           }
           
           if (zombieType === 'tank') {
-            // Add extra muscle mass
             const muscleMat = new THREE.MeshStandardMaterial({ 
               color: 0x3a4a6b, 
               roughness: 0.8 
@@ -796,66 +795,27 @@ export class GameEngine {
             const shoulderL = new THREE.Mesh(muscleGeo, muscleMat);
             shoulderL.position.set(-1.0, 1.5, 0);
             shoulderL.scale.set(1.2, 0.9, 1);
-            clone.add(shoulderL);
+            model.add(shoulderL);
             
             const shoulderR = new THREE.Mesh(muscleGeo, muscleMat);
             shoulderR.position.set(1.0, 1.5, 0);
             shoulderR.scale.set(1.2, 0.9, 1);
-            clone.add(shoulderR);
+            model.add(shoulderR);
           }
-          
-          group.add(clone);
-          return group;
         }
-      } else {
-        const soldierModel = this.modelCache.get('soldier');
-        if (soldierModel) {
-          const clone = soldierModel.clone();
-          // Scale to normal size (models are ~1.8m tall)
-          clone.scale.setScalar(1.0);
-          // Position with feet on ground
-          clone.position.y = 0;
-          // Rotate to face zombies
-          clone.rotation.y = Math.PI;
-          // Enable shadows
-          clone.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-            }
-          });
-          
-          // Add animation
-          const animations = this.animationCache.get('soldier');
-          if (animations && animations.length > 0) {
-            const mixer = new THREE.AnimationMixer(clone);
-            // Try to find an idle animation
-            let animationClip = animations.find(anim => 
-              anim.name.toLowerCase().includes('idle')
-            );
-            // If no idle animation, use the first one
-            if (!animationClip) {
-              animationClip = animations[0];
-            }
-            const action = mixer.clipAction(animationClip);
-            action.play();
-            this.animationMixers.push(mixer);
-            console.log(`🎬 Added animation for soldier: ${animationClip.name}`);
-          }
-          
-          group.add(clone);
-          return group;
-        }
+        
+        // Return the model directly - it will be positioned and moved by the game logic
+        return model;
       }
     }
 
     // Fallback to procedural models
+    const group = new THREE.Group();
     if (isZombie) {
       this.createDetailedZombie(group, zombieType);
     } else {
       this.createDetailedSoldier(group);
     }
-
     return group;
   }
 
