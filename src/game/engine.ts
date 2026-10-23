@@ -94,21 +94,18 @@ export class GameEngine {
   private modelCache: Map<string, THREE.Group> = new Map();
   private modelsLoaded = false;
   private onModelsLoaded: (() => void) | null = null;
+  private onProgress: ((message: string) => void) | null = null;
 
-  // Model URLs
-  // Для использования своих моделей: поместите файлы в public/models/ и раскомментируйте строки ниже
+  // Model URLs - загружаются с GitHub
   private readonly MODEL_URLS = {
     zombie: [
-      // '/models/zombie.glb', // ← Раскомментируйте и загрузите свою модель
-      'https://threejs.org/examples/models/gltf/Soldier.glb', // Временная замена
+      'https://raw.githubusercontent.com/andron113-oss/zombie/3d-zombie-defense-shooter-44da9/public/models/zombie.glb',
     ],
     soldier: [
-      // '/models/soldier.glb', // ← Раскомментируйте и загрузите свою модель
-      'https://threejs.org/examples/models/gltf/Soldier.glb', // Временная замена
+      'https://raw.githubusercontent.com/andron113-oss/zombie/3d-zombie-defense-shooter-44da9/public/models/soldier.glb',
     ],
     swat: [
-      // '/models/swat.glb', // ← Раскомментируйте и загрузите свою модель
-      'https://threejs.org/examples/models/gltf/Soldier.glb', // Временная замена
+      'https://raw.githubusercontent.com/andron113-oss/zombie/3d-zombie-defense-shooter-44da9/public/models/soldier.glb', // Используем солдата как SWAT
     ],
   };
 
@@ -121,13 +118,15 @@ export class GameEngine {
   constructor(
     container: HTMLElement, 
     onStateChange: (state: GameState) => void,
-    onReady?: () => void
+    onReady?: () => void,
+    onProgress?: (message: string) => void
   ) {
     this.clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
     this.onStateChange = onStateChange;
     this.onModelsLoaded = onReady || null;
+    this.onProgress = onProgress || null;
     this.gltfLoader = new GLTFLoader();
 
     this.state = {
@@ -165,15 +164,21 @@ export class GameEngine {
 
   private async loadModels(): Promise<void> {
     console.log('🎮 Starting model loading...');
-    console.log('📁 Expected paths:');
-    console.log('   - /models/zombie.glb');
-    console.log('   - /models/soldier.glb');
-    console.log('   - /models/swat.glb');
+    console.log('📁 Loading from GitHub:');
+    this.MODEL_URLS.zombie.forEach(url => console.log('   - zombie:', url));
+    this.MODEL_URLS.soldier.forEach(url => console.log('   - soldier:', url));
+    
+    if (this.onProgress) {
+      this.onProgress('Загрузка моделей с GitHub...');
+    }
     
     const loadModelWithFallback = async (urls: string[], name: string): Promise<THREE.Group | null> => {
       for (const url of urls) {
         try {
           console.log(`🔄 Attempting to load ${name} from ${url}`);
+          if (this.onProgress) {
+            this.onProgress(`Загрузка ${name}...`);
+          }
           const model = await new Promise<THREE.Group>((resolve, reject) => {
             this.gltfLoader.load(
               url,
@@ -204,6 +209,9 @@ export class GameEngine {
                   const percent = (progress.loaded / progress.total) * 100;
                   if (percent % 25 < 1) { // Log every 25%
                     console.log(`⏳ Loading ${name}: ${percent.toFixed(0)}%`);
+                    if (this.onProgress) {
+                      this.onProgress(`Загрузка ${name}: ${percent.toFixed(0)}%`);
+                    }
                   }
                 }
               },
@@ -215,6 +223,9 @@ export class GameEngine {
           });
           this.modelCache.set(name, model);
           console.log(`✅✓ Loaded model ${name} from ${url}`);
+          if (this.onProgress) {
+            this.onProgress(`✓ ${name} загружен`);
+          }
           return model;
         } catch (error) {
           console.warn(`⚠✗ Failed to load ${name} from ${url}, trying next...`);
@@ -669,37 +680,29 @@ export class GameEngine {
         if (zombieModel) {
           const clone = zombieModel.clone();
           
-          // Scale and adjust based on zombie type
+          // Scale and adjust based on zombie type (models are ~1.8m tall)
           const scales: Record<string, number> = {
-            normal: 0.01,
-            fast: 0.0085,
-            tank: 0.015,
-            armored: 0.012,
-            exploder: 0.011,
+            normal: 1.0,
+            fast: 0.9,
+            tank: 1.4,
+            armored: 1.2,
+            exploder: 1.1,
           };
-          const scale = scales[zombieType] || 0.01;
+          const scale = scales[zombieType] || 1.0;
           clone.scale.setScalar(scale);
           
-          // Adjust vertical position
-          clone.position.y = -0.9;
+          // Adjust vertical position (feet on ground)
+          clone.position.y = 0;
           
-          // Rotate to face player (soldier model faces -Z by default)
+          // Rotate to face player (model faces -Z by default)
           clone.rotation.y = Math.PI;
           
-          // Change materials color for zombie appearance
+          // Keep original textures - don't change colors
+          // Just enable shadows for all meshes
           clone.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-              // Make it look more zombie-like
-              const colors: Record<string, number> = {
-                normal: 0x4a6b3a,
-                fast: 0x6b4a3a,
-                tank: 0x3a4a6b,
-                armored: 0x5a5a5a,
-                exploder: 0x6b3a3a,
-              };
-              child.material.color.setHex(colors[zombieType] || 0x4a6b3a);
-              child.material.emissive.setHex(0x111100);
-              child.material.emissiveIntensity = 0.2;
+            if (child instanceof THREE.Mesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
             }
           });
           
@@ -777,11 +780,19 @@ export class GameEngine {
         const soldierModel = this.modelCache.get('soldier');
         if (soldierModel) {
           const clone = soldierModel.clone();
-          // Scale down and position correctly
-          clone.scale.setScalar(0.01); // Soldier model is very large
-          clone.position.y = -0.9; // Adjust vertical position
+          // Scale to normal size (models are ~1.8m tall)
+          clone.scale.setScalar(1.0);
+          // Position with feet on ground
+          clone.position.y = 0;
           // Rotate to face zombies
           clone.rotation.y = Math.PI;
+          // Enable shadows
+          clone.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
           group.add(clone);
           return group;
         }

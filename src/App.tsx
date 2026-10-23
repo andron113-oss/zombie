@@ -22,6 +22,7 @@ function App() {
   });
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState('Инициализация...');
   const [damageFlash, setDamageFlash] = useState(false);
   const [waveNotification, setWaveNotification] = useState(false);
   const [combo, setCombo] = useState(0);
@@ -55,10 +56,17 @@ function App() {
     if (!started || !containerRef.current) return;
 
     setLoading(true);
+    setLoadingProgress('Инициализация...');
     const engine = new GameEngine(
       containerRef.current, 
       handleStateChange,
-      () => setLoading(false)
+      () => {
+        setLoading(false);
+        setLoadingProgress('');
+      },
+      (message: string) => {
+        setLoadingProgress(message);
+      }
     );
     engineRef.current = engine;
 
@@ -173,11 +181,15 @@ function App() {
           <div className="text-center">
             <div className="text-6xl mb-4 animate-bounce">🎮</div>
             <div className="text-2xl text-white font-bold mb-2">Загрузка 3D моделей...</div>
-            <div className="text-sm text-gray-400 mb-4">Скачивание реальных моделей из интернета</div>
+            <div className="text-sm text-gray-400 mb-4">Скачивание реальных моделей из GitHub</div>
+            <div className="text-lg text-blue-400 mb-4 min-h-[28px]">{loadingProgress}</div>
             <div className="flex items-center justify-center gap-2">
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+            </div>
+            <div className="text-xs text-gray-500 mt-4">
+              Модели: ~14 MB (zombie.glb + soldier.glb)
             </div>
           </div>
         </div>
