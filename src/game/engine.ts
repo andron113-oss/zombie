@@ -95,21 +95,20 @@ export class GameEngine {
   private modelsLoaded = false;
   private onModelsLoaded: (() => void) | null = null;
 
-  // Model URLs - замените на пути к вашим моделям
-  // Локальные файлы: '/models/zombie.glb' (из папки public/models/)
-  // Или удалённые URL: 'https://example.com/models/zombie.glb'
+  // Model URLs
+  // Для использования своих моделей: поместите файлы в public/models/ и раскомментируйте строки ниже
   private readonly MODEL_URLS = {
     zombie: [
-      '/models/zombie.glb', // ← ВАША МОДЕЛЬ ЗОМБИ (обычный)
-      'https://threejs.org/examples/models/gltf/Soldier.glb', // Fallback
+      // '/models/zombie.glb', // ← Раскомментируйте и загрузите свою модель
+      'https://threejs.org/examples/models/gltf/Soldier.glb', // Временная замена
     ],
     soldier: [
-      '/models/soldier.glb', // ← ВАША МОДЕЛЬ СОЛДАТА
-      'https://threejs.org/examples/models/gltf/Soldier.glb', // Fallback
+      // '/models/soldier.glb', // ← Раскомментируйте и загрузите свою модель
+      'https://threejs.org/examples/models/gltf/Soldier.glb', // Временная замена
     ],
     swat: [
-      '/models/swat.glb', // ← ВАША МОДЕЛЬ SWAT/ТЯЖЁЛОГО БОЙЦА (опционально)
-      '/models/soldier.glb', // Fallback на солдата
+      // '/models/swat.glb', // ← Раскомментируйте и загрузите свою модель
+      'https://threejs.org/examples/models/gltf/Soldier.glb', // Временная замена
     ],
   };
 
@@ -165,48 +164,63 @@ export class GameEngine {
   }
 
   private async loadModels(): Promise<void> {
-    console.log('Starting model loading...');
+    console.log('🎮 Starting model loading...');
+    console.log('📁 Expected paths:');
+    console.log('   - /models/zombie.glb');
+    console.log('   - /models/soldier.glb');
+    console.log('   - /models/swat.glb');
     
     const loadModelWithFallback = async (urls: string[], name: string): Promise<THREE.Group | null> => {
       for (const url of urls) {
         try {
-          console.log(`Attempting to load ${name} from ${url}`);
+          console.log(`🔄 Attempting to load ${name} from ${url}`);
           const model = await new Promise<THREE.Group>((resolve, reject) => {
             this.gltfLoader.load(
               url,
               (gltf) => {
                 const model = gltf.scene;
-                console.log(`Successfully loaded ${name}, processing...`);
-                // Enable shadows
+                console.log(`✅ Successfully loaded ${name}, processing...`);
+                
+                // Log model info
+                let meshCount = 0;
+                let vertexCount = 0;
                 model.traverse((child) => {
                   if (child instanceof THREE.Mesh) {
+                    meshCount++;
+                    if (child.geometry) {
+                      vertexCount += child.geometry.attributes.position?.count || 0;
+                    }
                     child.castShadow = true;
                     child.receiveShadow = true;
                   }
                 });
+                console.log(`📊 Model ${name}: ${meshCount} meshes, ${vertexCount} vertices`);
+                
                 resolve(model);
               },
               (progress) => {
                 // Progress callback
                 if (progress.total > 0) {
                   const percent = (progress.loaded / progress.total) * 100;
-                  console.log(`Loading ${name}: ${percent.toFixed(1)}%`);
+                  if (percent % 25 < 1) { // Log every 25%
+                    console.log(`⏳ Loading ${name}: ${percent.toFixed(0)}%`);
+                  }
                 }
               },
               (error) => {
-                console.error(`Error loading ${name} from ${url}:`, error);
+                console.error(`❌ Error loading ${name} from ${url}:`, error);
                 reject(error);
               }
             );
           });
           this.modelCache.set(name, model);
-          console.log(`✓ Loaded model ${name} from ${url}`);
+          console.log(`✅✓ Loaded model ${name} from ${url}`);
           return model;
         } catch (error) {
-          console.warn(`✗ Failed to load ${name} from ${url}, trying next...`);
+          console.warn(`⚠✗ Failed to load ${name} from ${url}, trying next...`);
         }
       }
-      console.warn(`⚠ All URLs failed for ${name}, will use procedural fallback`);
+      console.warn(`⚠️ All URLs failed for ${name}, will use procedural fallback`);
       return null;
     };
 
@@ -220,12 +234,13 @@ export class GameEngine {
       // Check if at least one model loaded
       this.modelsLoaded = this.modelCache.size > 0;
       if (this.modelsLoaded) {
-        console.log(`✓ Loaded ${this.modelCache.size} models successfully`);
+        console.log(`✅✓✓ Loaded ${this.modelCache.size} models successfully`);
+        console.log('🎯 Models in cache:', Array.from(this.modelCache.keys()));
       } else {
-        console.warn('⚠ No models loaded, using procedural fallback for all');
+        console.warn('⚠️⚠️ No models loaded, using procedural fallback for all');
       }
     } catch (error) {
-      console.warn('⚠ Model loading failed, using fallback procedural models');
+      console.warn('⚠️⚠️ Model loading failed, using fallback procedural models');
       this.modelsLoaded = false;
     }
     
