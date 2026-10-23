@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { soundSystem } from './sounds';
 
 // ============= TYPES =============
@@ -702,8 +703,9 @@ export class GameEngine {
       const cachedModel = this.modelCache.get(modelName);
       
       if (cachedModel) {
-        // Clone the model directly - this will be the root object that moves
-        const model = cachedModel.clone() as THREE.Group;
+        // CRITICAL: Use SkeletonUtils.clone() for proper skeleton/animation cloning!
+        // Regular .clone() doesn't properly clone skinned meshes and animations
+        const model = SkeletonUtils.clone(cachedModel) as THREE.Group;
         
         // CRITICAL: Reset ALL transforms on the cloned model
         model.position.set(0, 0, 0);
@@ -2046,6 +2048,7 @@ export class GameEngine {
       speed: speedByType[type] || 3,
       attackTimer: 0,
       animTime: Math.random() * Math.PI * 2,
+      invulnerableTimer: 1.0, // 1 second of invulnerability after spawn
     });
 
     this.zombiesSpawned++;
@@ -2176,6 +2179,12 @@ export class GameEngine {
     let debugCounter = 0;
     this.zombies.forEach(zombie => {
       if (!zombie.mesh || !zombie.mesh.parent) return; // Safety check
+      
+      // Update invulnerability timer
+      if (zombie.invulnerableTimer > 0) {
+        zombie.invulnerableTimer -= delta;
+      }
+      
       zombie.animTime += delta * zombie.speed;
 
       // Move towards squad
@@ -2320,6 +2329,7 @@ export class GameEngine {
       if (bullet.isPlayer) {
         for (const zombie of this.zombies) {
           if (!zombie.mesh || !zombie.mesh.parent) continue;
+          if (zombie.invulnerableTimer > 0) continue; // Skip invulnerable zombies
           const dist = bullet.mesh.position.distanceTo(zombie.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)));
           if (dist < 1.5) {
             this.damageZombie(zombie, bullet.damage);
@@ -2572,6 +2582,7 @@ interface ZombieData {
   speed: number;
   attackTimer: number;
   animTime: number;
+  invulnerableTimer: number; // Period of invulnerability after spawn
 }
 
 interface BonusBlockData {
